@@ -8,7 +8,7 @@
     python -m vtia.cli evaluate --cvat data/annotations --videos data/anon --splits data/splits.csv --partition test
     python -m vtia.cli calibrate --cvat data/annotations --videos data/anon --splits data/splits.csv --partition fold1 --model yolo26n.pt
     python -m vtia.cli train --visdrone data/visdrone/VisDrone2019-MOT-val --val <seq> <seq>
-    python -m vtia.cli train --mio-tcd data/mio_tcd --name mio_tcd
+    python -m vtia.cli train --mio-tcd data/MIO-TCD-Localization --sample 20000 --name mio_tcd
 """
 import argparse
 import csv
@@ -363,9 +363,9 @@ def train_cmd(args) -> None:
     if args.mio_tcd:
         if args.visdrone or args.cvat or args.val or args.splits:
             raise SystemExit("--mio-tcd brings its own train/valid split; don't combine it with other sources")
-        from vtia.adapters.mio_tcd import convert_export
+        from vtia.adapters.mio_tcd import convert
         try:
-            data, counts = convert_export(args.mio_tcd, Path("outputs/train") / args.name / "dataset")
+            data, counts = convert(args.mio_tcd, Path("outputs/train") / args.name / "dataset", sample=args.sample)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         for split in ("train", "val", "test"):
@@ -514,7 +514,9 @@ def main(argv: list[str] | None = None) -> None:
     t = sub.add_parser("train", help="fine-tune a YOLO model (phase 4)")
     _source_options(t)
     t.add_argument("--mio-tcd", type=Path, metavar="DIR",
-                   help="MIO-TCD exported from Roboflow in YOLO format (data.yaml, train/, valid/)")
+                   help="MIO-TCD: official MIO-TCD-Localization/ (gt_train.csv) or a Roboflow YOLO export")
+    t.add_argument("--sample", type=int, metavar="N",
+                   help="with the official MIO-TCD: use N random images (the full set is ~110k)")
     t.add_argument("--val", nargs="+", metavar="NAME", help="validation sequences (the rest train)")
     t.add_argument("--splits", type=Path, help="CSV from `split`: trains on the folds except --fold, never on test")
     t.add_argument("--fold", type=int, default=1, help="validation fold when using --splits (default: %(default)s)")

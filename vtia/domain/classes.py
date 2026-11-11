@@ -22,5 +22,7 @@ COCO_TO_ROAD = {
     "truck": RoadClass.TRUCK,
 }
 
+ROAD_TO_COCO = {road: coco for coco, road in COCO_TO_ROAD.items()}
+
 # Any label a detector may emit -> project class: COCO names (pretrained) or our own (fine-tuned models).
 MODEL_LABELS = COCO_TO_ROAD | {c.value: c for c in RoadClass}

@@ -8,9 +8,13 @@ from ultralytics import YOLO
 
 from vtia.adapters.video_io import read_frames
 from vtia.application.evaluate import AnnotatedSequence
-from vtia.domain.classes import RoadClass
+from vtia.domain.classes import ROAD_TO_COCO, RoadClass
 
-NAMES = [c.value for c in RoadClass]  # class ids of the fine-tuned model = RoadClass order
+# Class ids of the fine-tuned model follow RoadClass order, but carry COCO's names ("person", not
+# "pedestrian"): Ultralytics copies a class's pretrained head row only when the names match, so all six
+# start from what COCO learned. Detections map back through MODEL_LABELS ("person" -> pedestrian).
+CLASS_ID = {c: i for i, c in enumerate(RoadClass)}
+NAMES = [ROAD_TO_COCO[c] for c in RoadClass]
 IGNORE_FILL = (114, 114, 114)         # Ultralytics' padding grey: ignore regions become "nothing to learn"
 
 
@@ -35,7 +39,7 @@ def export_dataset(train: list[AnnotatedSequence], val: list[AnnotatedSequence],
                 for t in seq.truths[i]:
                     x1, y1, x2, y2 = max(0, t.box[0]), max(0, t.box[1]), min(w, t.box[2]), min(h, t.box[3])
                     if x2 > x1 and y2 > y1:
-                        lines.append(f"{NAMES.index(t.road_class.value)} {(x1 + x2) / 2 / w:.6f} {(y1 + y2) / 2 / h:.6f} "
+                        lines.append(f"{CLASS_ID[t.road_class]} {(x1 + x2) / 2 / w:.6f} {(y1 + y2) / 2 / h:.6f} "
                                      f"{(x2 - x1) / w:.6f} {(y2 - y1) / h:.6f}")
                 (out / "labels" / split / f"{stem}.txt").write_text("\n".join(lines), encoding="utf-8")
     data = out / "data.yaml"
