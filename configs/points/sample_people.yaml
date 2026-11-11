@@ -1,0 +1,17 @@
+# Punto de cámara de EJEMPLO: data/samples/people-walking.mp4 (plaza peatonal, 1920x1080).
+# No es una vía: las zonas simulan reglas del proyecto para probar las alertas.
+lines:
+  - name: middle
+    start: [0, 600]
+    end: [1920, 600]
+    to_right: toward_camera   # bajan en la imagen
+    to_left: away_from_camera
+
+zones:
+  - name: meeting_spot        # grupo de personas detenidas: prueba permanencia y aglomeración
+    polygon: [[280, 420], [580, 420], [580, 700], [280, 700]]
+    max_dwell_s: 5
+    max_occupancy: 4
+  - name: mock_roadway        # franja que simula una calzada: prueba "peatón en calzada"
+    polygon: [[1500, 0], [1700, 0], [1700, 1080], [1500, 1080]]
+    forbidden: [pedestrian]

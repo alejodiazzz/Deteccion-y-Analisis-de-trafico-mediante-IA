@@ -1,0 +1,17 @@
+# Python 3.12. torch/torchvision come with ultralytics (CPU build on Windows;
+# Colab keeps its own CUDA build). AMD GPU: see README, section "GPU AMD".
+ultralytics==8.4.174
+lap==0.5.13
+pyyaml==6.0.3
+supervision==0.30.8
+trackers==2.6.1
+pycocotools==2.0.11
+scipy==1.18.1
+tabulate  # optional TrackEval dependency; avoids a noisy import warning
+matplotlib==3.11.2
+reportlab==5.0.1
+streamlit==1.65.0
+altair==6.3.0
+pandas==3.0.6
+imageio-ffmpeg==0.6.0  # bundled ffmpeg: H.264 output with quality control
+trackeval @ git+https://github.com/JonathonLuiten/TrackEval.git@12c8791b303e0a0b50f753af204249e622d0281a

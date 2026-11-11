@@ -1,0 +1,10 @@
+# Dashboard: local only. Videos may contain personal data (Ley 1581 de 2012); publishing is phase 8.
+[server]
+address = "localhost"
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"  # the animated background is dark

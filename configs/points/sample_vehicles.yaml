@@ -1,0 +1,39 @@
+# Punto de cámara de EJEMPLO: data/samples/vehicles.mp4 (autopista, 3840x2160).
+# Coordenadas en píxeles del video original. Para un punto nuevo: sacar un
+# cuadro, abrirlo en un editor de imágenes y leer las coordenadas.
+#
+# Líneas: caminando de `start` a `end` (visto en pantalla), cruzar al lado
+# derecho es `to_right`. Con una línea horizontal de izquierda a derecha:
+# to_right = baja en la imagen. `allowed` (opcional) es el único sentido
+# permitido; el otro genera una alerta de contraflujo.
+lines:
+  - name: left_lanes           # calzada izquierda: los vehículos vienen hacia la cámara
+    start: [850, 1300]
+    end: [1700, 1300]
+    to_right: toward_camera
+    to_left: away_from_camera
+    allowed: toward_camera
+  - name: right_lanes          # calzada derecha: se alejan
+    start: [2220, 1300]
+    end: [3100, 1300]
+    to_right: toward_camera
+    to_left: away_from_camera
+    allowed: away_from_camera
+
+# Zonas (polígonos). Reglas opcionales: forbidden (clases que no deben estar
+# adentro), max_dwell_s (permanencia máxima), max_occupancy (aglomeración).
+zones:
+  - name: left_carriageway
+    polygon: [[1380, 800], [1660, 800], [1740, 2160], [180, 2160]]
+    forbidden: [pedestrian, bicycle]
+    max_occupancy: 8
+  - name: right_carriageway
+    polygon: [[1860, 800], [2230, 800], [3840, 1850], [3840, 2160], [2900, 2160]]
+    forbidden: [pedestrian, bicycle]
+    max_occupancy: 8
+
+# Restricciones horarias (hora local). EJEMPLO: este video no tiene hora real;
+# para probarla, correr con --start "2026-10-07 07:00".
+restrictions:
+  - class: truck
+    hours: ["06:00-08:00", "17:00-19:00"]
