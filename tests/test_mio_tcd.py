@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import yaml
 
-from vtia.adapters.mio_tcd import convert_export
+from vtia.adapters.mio_tcd import convert, convert_export, convert_official
 from vtia.adapters.yolo_training import IGNORE_FILL, NAMES
 
 ROBOFLOW_NAMES = ["Articulated_truck", "Bicycle", "Bus", "Car", "Motorcycle", "Motorized_vehicle",
@@ -50,6 +50,46 @@ class ConvertExportTest(unittest.TestCase):
             export(Path(d) / "src", names=ROBOFLOW_NAMES + ["tram"])
             with self.assertRaisesRegex(ValueError, "tram"):
                 convert_export(Path(d) / "src", Path(d) / "out")
+
+
+def official(root: Path, n_images: int = 10) -> None:
+    """MIO-TCD-Localization/ like the real one: train/<id>.jpg + gt_train.csv (id,label,x1,y1,x2,y2)."""
+    loc = root / "MIO-TCD-Localization"
+    (loc / "train").mkdir(parents=True)
+    rows = []
+    for i in range(n_images):
+        image_id = f"{i:08d}"
+        cv2.imwrite(str(loc / "train" / f"{image_id}.jpg"), np.zeros((100, 200, 3), np.uint8))
+        rows += [f"{image_id},pickup_truck,10,10,30,30", f"{image_id},car,40,10,80,50",
+                 f"{image_id},work_van,150,40,190,90", f"{image_id},pedestrian,190,0,260,20"]
+    (loc / "gt_train.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+class ConvertOfficialTest(unittest.TestCase):
+    def test_every_box_of_an_image_is_kept_and_val_is_carved_from_train(self):
+        with tempfile.TemporaryDirectory() as d:
+            official(Path(d) / "src")
+            data, counts = convert(Path(d) / "src", Path(d) / "out")  # finds MIO-TCD-Localization/ inside
+            spec = yaml.safe_load(data.read_text(encoding="utf-8"))
+            self.assertEqual((spec["train"], spec["val"]), ("train/images", "val/images"))
+            out = Path(d) / "out"
+            self.assertEqual(len(list((out / "val" / "labels").glob("*.txt"))), 1)
+            self.assertEqual(len(list((out / "train" / "labels").glob("*.txt"))), 9)
+            rows = (out / "train" / "labels" / "00000003.txt").read_text(encoding="utf-8").split("\n")
+            self.assertEqual(rows, [f"{NAMES.index('car')} 0.100000 0.200000 0.100000 0.200000",
+                                    f"{NAMES.index('car')} 0.300000 0.300000 0.200000 0.400000",
+                                    f"{NAMES.index('pedestrian')} 0.975000 0.100000 0.050000 0.200000"])  # clipped
+            img = cv2.imread(str(out / "train" / "images" / "00000003.jpg"))
+            self.assertEqual(tuple(int(v) for v in img[60, 170]), IGNORE_FILL)  # the work van
+            self.assertEqual(counts[("train", "car")] + counts[("val", "car")], 20)
+            self.assertEqual(counts[("train", "ignore")] + counts[("val", "ignore")], 10)
+
+    def test_sample_keeps_n_images(self):
+        with tempfile.TemporaryDirectory() as d:
+            official(Path(d) / "src")
+            convert_official(Path(d) / "src", Path(d) / "out", sample=4)
+            n = sum(len(list((Path(d) / "out" / s / "labels").glob("*.txt"))) for s in ("train", "val"))
+            self.assertEqual(n, 4)
 
 
 if __name__ == "__main__":
