@@ -37,7 +37,7 @@ class ConvertExportTest(unittest.TestCase):
             self.assertEqual((spec["train"], spec["val"]), ("train/images", "val/images"))
             rows = (Path(d) / "out" / "val" / "labels" / "a.txt").read_text(encoding="utf-8").split("\n")
             self.assertEqual([int(r.split()[0]) for r in rows],
-                             [NAMES.index("car"), NAMES.index("truck"), NAMES.index("pedestrian")])
+                             [NAMES.index("car"), NAMES.index("truck"), NAMES.index("person")])
             self.assertEqual(rows[2].split()[1:], ["0.150000", "0.200000", "0.100000", "0.200000"])
             img = cv2.imread(str(Path(d) / "out" / "train" / "images" / "a.jpg"))
             self.assertEqual(tuple(int(v) for v in img[50, 160]), IGNORE_FILL)  # inside the work van
@@ -78,7 +78,7 @@ class ConvertOfficialTest(unittest.TestCase):
             rows = (out / "train" / "labels" / "00000003.txt").read_text(encoding="utf-8").split("\n")
             self.assertEqual(rows, [f"{NAMES.index('car')} 0.100000 0.200000 0.100000 0.200000",
                                     f"{NAMES.index('car')} 0.300000 0.300000 0.200000 0.400000",
-                                    f"{NAMES.index('pedestrian')} 0.975000 0.100000 0.050000 0.200000"])  # clipped
+                                    f"{NAMES.index('person')} 0.975000 0.100000 0.050000 0.200000"])  # clipped
             img = cv2.imread(str(out / "train" / "images" / "00000003.jpg"))
             self.assertEqual(tuple(int(v) for v in img[60, 170]), IGNORE_FILL)  # the work van
             self.assertEqual(counts[("train", "car")] + counts[("val", "car")], 20)
@@ -90,6 +90,14 @@ class ConvertOfficialTest(unittest.TestCase):
             convert_official(Path(d) / "src", Path(d) / "out", sample=4)
             n = sum(len(list((Path(d) / "out" / s / "labels").glob("*.txt"))) for s in ("train", "val"))
             self.assertEqual(n, 4)
+
+
+class TrainingNamesTest(unittest.TestCase):
+    def test_names_are_coco_so_every_head_row_transfers_and_maps_back(self):
+        from vtia.domain.classes import COCO_TO_ROAD, MODEL_LABELS, RoadClass
+        self.assertEqual(NAMES, ["person", "bicycle", "motorcycle", "car", "bus", "truck"])
+        self.assertTrue(set(NAMES) <= set(COCO_TO_ROAD))
+        self.assertEqual([MODEL_LABELS[n] for n in NAMES], list(RoadClass))  # ids keep RoadClass order
 
 
 if __name__ == "__main__":

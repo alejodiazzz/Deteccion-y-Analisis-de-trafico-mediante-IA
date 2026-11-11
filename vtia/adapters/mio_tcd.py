@@ -23,7 +23,7 @@ import cv2
 import yaml
 from PIL import Image
 
-from vtia.adapters.yolo_training import IGNORE_FILL, NAMES
+from vtia.adapters.yolo_training import CLASS_ID, IGNORE_FILL, NAMES
 from vtia.domain.classes import RoadClass
 
 # Follows Docs/Guia_Anotacion.md: pickups are `car`, trucks of any size are `truck`.
@@ -53,7 +53,7 @@ def _road_id(name: str) -> int | None:
     """VTIA class id, None for the ignored classes; ValueError for names MIO-TCD doesn't have."""
     key = _key(name)
     if key in MIO_TCD_TO_ROAD:
-        return NAMES.index(MIO_TCD_TO_ROAD[key].value)
+        return CLASS_ID[MIO_TCD_TO_ROAD[key]]
     if key in MIO_TCD_IGNORED:
         return None
     raise ValueError(f"class not in MIO-TCD, map it in vtia/adapters/mio_tcd.py first: {name!r}")
@@ -71,7 +71,7 @@ def _write(image: Path, boxes: list[tuple[int | None, Box]], out: Path, split: s
     keep = [f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}" for cls, (cx, cy, w, h) in boxes if cls is not None]
     ignore = [box for cls, box in boxes if cls is None]
     for cls, _ in boxes:
-        counts[(split, "ignore" if cls is None else NAMES[cls])] += 1
+        counts[(split, "ignore" if cls is None else list(RoadClass)[cls].value)] += 1
     dest = out / split / "images" / image.name
     if dest.exists() or dest.is_symlink():
         dest.unlink()
