@@ -14,8 +14,10 @@ import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 import streamlit.components.v1 as components  # noqa: E402
 
+import comparison_view  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
+from vtia.adapters.video_io import video_info  # noqa: E402
 from vtia.compose import MODELS, analyze_file, default_track_thresh, device_name  # noqa: E402
 from vtia.domain.timeline import video_start  # noqa: E402
 
@@ -94,96 +96,110 @@ with st.sidebar:
     run = st.button("Analizar", type="primary", width="stretch",
                     disabled=not (uploaded or picked) or not point)
 
-if run:
-    if uploaded:
-        target = DATA / "uploads" / uploaded.name
+
+def selected_video() -> Path:
+    """The chosen video. An uploaded one is saved first: the models read it from disk."""
+    if not uploaded:
+        return picked
+    target = DATA / "uploads" / uploaded.name
+    if not target.exists() or target.stat().st_size != uploaded.size:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(uploaded.getbuffer())
-    else:
-        target = picked
-    bar = st.progress(0.0, text="Cargando el modelo...")
-    try:
-        st.session_state.run = analyze_file(
-            target, point, model=model, tracker=tracker, track_thresh=thresh, start=start, out=OUT,
-            save_video=save_video,
-            progress=lambda i, n: bar.progress(min(i / max(n, 1), 1.0), text=f"Cuadro {i} de {n} ({device_name()})"))
-    except Exception as e:  # show config/video problems in the page instead of a stack trace
+    return target
+
+
+analysis_tab, compare_tab = st.tabs(["Análisis", "Comparar modelos"])
+
+# First: the analysis below ends with st.stop() while there are no results.
+with compare_tab:
+    comparison_view.render(selected_video, name, point, video_info(selected_video())[1] if name else 0, ROOT)
+
+with analysis_tab:
+    if run:
+        target = selected_video()
+        bar = st.progress(0.0, text="Cargando el modelo...")
+        try:
+            st.session_state.run = analyze_file(
+                target, point, model=model, tracker=tracker, track_thresh=thresh, start=start, out=OUT,
+                save_video=save_video,
+                progress=lambda i, n: bar.progress(min(i / max(n, 1), 1.0), text=f"Cuadro {i} de {n} ({device_name()})"))
+        except Exception as e:  # show config/video problems in the page instead of a stack trace
+            bar.empty()
+            st.error(f"No se pudo analizar el video: {e}")
+            st.stop()
         bar.empty()
-        st.error(f"No se pudo analizar el video: {e}")
+
+    result = st.session_state.get("run")
+    if not result:
+        st.info("Elige un video y un punto de cámara en el panel izquierdo y presiona **Analizar**.")
         st.stop()
-    bar.empty()
 
-result = st.session_state.get("run")
-if not result:
-    st.info("Elige un video y un punto de cámara en el panel izquierdo y presiona **Analizar**.")
-    st.stop()
+    a, s = result.analysis, result.summary
+    st.caption(f"{result.out.name} · {a.frames} cuadros en {result.seconds:.1f} s · "
+               f"inicio {a.start:%Y-%m-%d %H:%M}" if a.start else
+               f"{result.out.name} · {a.frames} cuadros en {result.seconds:.1f} s · hora de inicio desconocida")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Cruces de línea", s.total)
+    k2.metric("Objetos seguidos", s.tracks)
+    k3.metric("Alertas", len(a.alerts))
+    k4.metric("Duración", es.duration(s.duration_s))
 
-a, s = result.analysis, result.summary
-st.caption(f"{result.out.name} · {a.frames} cuadros en {result.seconds:.1f} s · "
-           f"inicio {a.start:%Y-%m-%d %H:%M}" if a.start else
-           f"{result.out.name} · {a.frames} cuadros en {result.seconds:.1f} s · hora de inicio desconocida")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Cruces de línea", s.total)
-k2.metric("Objetos seguidos", s.tracks)
-k3.metric("Alertas", len(a.alerts))
-k4.metric("Duración", es.duration(s.duration_s))
+    summary_tab, video_tab, zones_tab, files_tab = st.tabs(["Resumen", "Video", "Zonas y alertas", "Descargas"])
 
-summary_tab, video_tab, zones_tab, files_tab = st.tabs(["Resumen", "Video", "Zonas y alertas", "Descargas"])
+    with summary_tab:
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Composición del tráfico")
+            if s.by_class:
+                df = pd.DataFrame([(es.CLASS[c], n, share) for c, n, share in s.by_class], columns=["Clase", "Cruces", "Proporción"])
+                st.altair_chart(alt.Chart(df).mark_bar(color=BAR, size=18, cornerRadiusEnd=4).encode(
+                    x=alt.X("Cruces:Q", axis=alt.Axis(tickMinStep=1)),
+                    y=alt.Y("Clase:N", sort="-x", title=None),
+                    tooltip=["Clase", "Cruces", alt.Tooltip("Proporción:Q", format=".0%")]), width="stretch")
+            else:
+                st.write("Ningún objeto cruzó las líneas.")
+            st.subheader("Por línea y sentido")
+            st.dataframe(pd.DataFrame([(l, d, es.CLASS[c], n) for l, d, c, n in s.by_line],
+                                      columns=["Línea", "Sentido", "Clase", "Cruces"]), hide_index=True, width="stretch")
+        with right:
+            unit = f"{s.interval_s} s" if s.interval_s < 60 else f"{s.interval_s // 60} min"
+            st.subheader(f"Cruces por intervalo de {unit}")
+            df = pd.DataFrame(s.by_interval, columns=["Inicio", "Cruces"])
+            df["Pico"] = df["Inicio"] == (s.peak[0] if s.peak else None)
+            st.altair_chart(alt.Chart(df).mark_bar(cornerRadiusEnd=4).encode(
+                x=alt.X("Inicio:N", sort=None, title="Inicio del intervalo"),
+                y=alt.Y("Cruces:Q", axis=alt.Axis(tickMinStep=1)),
+                color=alt.condition("datum.Pico", alt.value(PEAK), alt.value(BAR)),
+                tooltip=["Inicio", "Cruces"]), width="stretch")
+            if s.peak:
+                st.caption(f"Pico: el intervalo que empieza en **{s.peak[0]}**, con {s.peak[1]} cruces."
+                           + ("" if s.start else " Sin hora real: tiempo transcurrido desde el inicio."))
 
-with summary_tab:
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Composición del tráfico")
-        if s.by_class:
-            df = pd.DataFrame([(es.CLASS[c], n, share) for c, n, share in s.by_class], columns=["Clase", "Cruces", "Proporción"])
-            st.altair_chart(alt.Chart(df).mark_bar(color=BAR, size=18, cornerRadiusEnd=4).encode(
-                x=alt.X("Cruces:Q", axis=alt.Axis(tickMinStep=1)),
-                y=alt.Y("Clase:N", sort="-x", title=None),
-                tooltip=["Clase", "Cruces", alt.Tooltip("Proporción:Q", format=".0%")]), width="stretch")
+    with video_tab:
+        video = result.out / "annotated.mp4"
+        if video.exists():
+            st.video(str(video))
+            st.caption("Cajas por clase con su ID; la línea se ilumina en cada cruce; en rojo, objetos con alerta.")
         else:
-            st.write("Ningún objeto cruzó las líneas.")
-        st.subheader("Por línea y sentido")
-        st.dataframe(pd.DataFrame([(l, d, es.CLASS[c], n) for l, d, c, n in s.by_line],
-                                  columns=["Línea", "Sentido", "Clase", "Cruces"]), hide_index=True, width="stretch")
-    with right:
-        unit = f"{s.interval_s} s" if s.interval_s < 60 else f"{s.interval_s // 60} min"
-        st.subheader(f"Cruces por intervalo de {unit}")
-        df = pd.DataFrame(s.by_interval, columns=["Inicio", "Cruces"])
-        df["Pico"] = df["Inicio"] == (s.peak[0] if s.peak else None)
-        st.altair_chart(alt.Chart(df).mark_bar(cornerRadiusEnd=4).encode(
-            x=alt.X("Inicio:N", sort=None, title="Inicio del intervalo"),
-            y=alt.Y("Cruces:Q", axis=alt.Axis(tickMinStep=1)),
-            color=alt.condition("datum.Pico", alt.value(PEAK), alt.value(BAR)),
-            tooltip=["Inicio", "Cruces"]), width="stretch")
-        if s.peak:
-            st.caption(f"Pico: el intervalo que empieza en **{s.peak[0]}**, con {s.peak[1]} cruces."
-                       + ("" if s.start else " Sin hora real: tiempo transcurrido desde el inicio."))
+            st.info("Este análisis se hizo sin video anotado.")
 
-with video_tab:
-    video = result.out / "annotated.mp4"
-    if video.exists():
-        st.video(str(video))
-        st.caption("Cajas por clase con su ID; la línea se ilumina en cada cruce; en rojo, objetos con alerta.")
-    else:
-        st.info("Este análisis se hizo sin video anotado.")
+    with zones_tab:
+        st.subheader("Permanencia en zonas")
+        if s.dwell:
+            st.dataframe(pd.DataFrame(s.dwell, columns=["Zona", "Visitas", "Promedio (s)", "Máximo (s)"]).round(1),
+                         hide_index=True, width="stretch")
+        else:
+            st.write("Este punto no tiene zonas configuradas, o nadie entró en ellas.")
+        st.subheader("Alertas")
+        if a.alerts:
+            st.dataframe(pd.DataFrame([(round(x.frame / a.fps, 1), es.ALERT.get(x.kind, x.kind), x.where,
+                                        es.CLASS.get(x.road_class, "-"), x.track_id, x.detail) for x in a.alerts],
+                                      columns=["Segundo", "Tipo", "Dónde", "Clase", "ID", "Detalle"]),
+                         hide_index=True, width="stretch")
+        else:
+            st.write("Sin alertas.")
 
-with zones_tab:
-    st.subheader("Permanencia en zonas")
-    if s.dwell:
-        st.dataframe(pd.DataFrame(s.dwell, columns=["Zona", "Visitas", "Promedio (s)", "Máximo (s)"]).round(1),
-                     hide_index=True, width="stretch")
-    else:
-        st.write("Este punto no tiene zonas configuradas, o nadie entró en ellas.")
-    st.subheader("Alertas")
-    if a.alerts:
-        st.dataframe(pd.DataFrame([(round(x.frame / a.fps, 1), es.ALERT.get(x.kind, x.kind), x.where,
-                                    es.CLASS.get(x.road_class, "-"), x.track_id, x.detail) for x in a.alerts],
-                                  columns=["Segundo", "Tipo", "Dónde", "Clase", "ID", "Detalle"]),
-                     hide_index=True, width="stretch")
-    else:
-        st.write("Sin alertas.")
-
-with files_tab:
-    st.write(f"Archivos en `{result.out.relative_to(ROOT)}`:")
-    for f in sorted(result.out.iterdir()):
-        st.download_button(f.name, f.read_bytes(), file_name=f.name, key=f"dl-{f.name}")
+    with files_tab:
+        st.write(f"Archivos en `{result.out.relative_to(ROOT)}`:")
+        for f in sorted(result.out.iterdir()):
+            st.download_button(f.name, f.read_bytes(), file_name=f.name, key=f"dl-{f.name}")

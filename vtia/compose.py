@@ -3,7 +3,7 @@
 Builds the adapters, runs the use cases and writes every output of a video analysis.
 """
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,8 +12,11 @@ import torch
 
 from vtia.adapters.annotated_video import AnnotatedVideo
 from vtia.adapters.anonymized_video import blur_video, contact_sheet
+from vtia.adapters.cached_detector import CachedDetector
+from vtia.adapters.comparison_files import CACHE_DIR, clear_results, write_comparison
 from vtia.adapters.faster_rcnn_detector import FasterRCNNDetector
 from vtia.adapters.labels_es import duration
+from vtia.adapters.manual_counts import parse_manual_counts
 from vtia.adapters.mot_tracker import MotTracker
 from vtia.adapters.pdf_report import write_pdf
 from vtia.adapters.report_files import write_summary_tables, write_tables
@@ -21,9 +24,11 @@ from vtia.adapters.ultralytics_detector import UltralyticsDetector
 from vtia.adapters.video_io import video_info
 from vtia.adapters.yaml_config import load_point
 from vtia.application.anonymize import regions_per_frame
+from vtia.application.compare_models import Comparison, compare_models
 from vtia.application.postprocessed import PostProcessed
 from vtia.application.process_video import VideoAnalysis, process_video
 from vtia.application.summary import Summary, summarize
+from vtia.domain.dataset_validation import read_split_manifest
 from vtia.domain.postprocess import merge_riders, suppress_duplicates
 from vtia.domain.timeline import video_start
 
@@ -154,3 +159,39 @@ def prelabel_file(video: Path, out_dir: Path, *, model: str = PRELABEL_MODEL, co
             progress(i + 1, total)
     out = out_dir / f"{video.stem}.zip"
     return out, write_preannotations(tracked, out, keyframe_every)
+
+
+@dataclass
+class ComparisonRun:
+    comparison: Comparison
+    out: Path            # folder with the comparison's files
+
+
+def compare_file(video: Path, point_path: Path, *, annotations: Path | None = None, manual_csv: str | None = None,
+                 models: Sequence[str] = tuple(MODELS), out: Path = Path("outputs/dashboard"),
+                 splits: Path = Path("data/splits.csv"),
+                 on_model: Callable[[int, int, str], None] | None = None) -> ComparisonRun:
+    """Runs every model on one video. Annotations and manual counts are optional; see compare_models."""
+    video, splits = Path(video), Path(splits)
+    if annotations and splits.is_file() and read_split_manifest(splits).get(video.stem) == "test":
+        raise ValueError(f"{video.name} pertenece a la partición de prueba: elegir un modelo con ella invalidaría "
+                         "esa evaluación. Usa un clip de validación o compara sin anotaciones.")
+    point = load_point(point_path)
+    fps, _ = video_info(video)
+    truth = map_metric = mot_metric = None
+    if annotations:  # only this path needs the evaluation libraries
+        from vtia.adapters.coco_map import coco_map as map_metric
+        from vtia.adapters.cvat_mot import read_annotations
+        from vtia.adapters.trackeval_metrics import mot_metrics as mot_metric
+        truth = read_annotations(annotations, video)
+    manual = parse_manual_counts(manual_csv, point) if manual_csv else None
+    target = Path(out) / video.stem / "comparison"
+    clear_results(target)
+
+    def build(model: str):
+        return CachedDetector(make_detector(model, 0.01), target / CACHE_DIR), make_tracker("bytetrack", model)
+
+    comparison = compare_models(video, point, fps, models, build, truth=truth, manual=manual,
+                                map_metric=map_metric, mot_metric=mot_metric, on_model=on_model)
+    write_comparison(target, comparison)
+    return ComparisonRun(comparison, target)

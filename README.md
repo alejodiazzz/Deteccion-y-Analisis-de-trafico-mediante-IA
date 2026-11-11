@@ -30,6 +30,18 @@ python -m streamlit run app\dashboard.py
 
 Se abre en el navegador (http://localhost:8501). Solo es accesible desde el propio PC (`.streamlit/config.toml`), porque los videos pueden tener datos personales. El fondo animado es [upstream-fx](https://github.com/AmunM9/upstream-fx) (MIT), incluido en `app/static/` para no depender de internet. Ahí se sube o elige un video, se elige el punto de cámara y el modelo, y se presiona **Analizar**. Muestra conteos, gráficas, el video anotado, zonas y alertas, y permite descargar todo (PDF y CSV). Los resultados quedan en `outputs\dashboard\<video>\`.
 
+### Comparar modelos
+
+En el tablero, la pestaña **Comparar modelos** ejecuta YOLO26n, YOLO26s, RT-DETR-L y Faster R-CNN sobre el video y el punto elegidos. Solo afirma lo que los datos permiten:
+
+| Además del video | Resultado |
+|---|---|
+| Nada | Cruces, objetos seguidos, velocidad y discrepancia entre modelos, sin ganador por precisión |
+| Conteo manual (CSV) | Error de conteo por modelo y el mejor contando |
+| Anotaciones CVAT (zip MOT 1.1) | Matriz de confusión de cada modelo, mAP, F1, HOTA, MOTA, IDF1 y el mejor detectando y clasificando |
+
+El CSV lleva las columnas `class` (`pedestrian`, `bicycle`, `motorcycle`, `car`, `bus`, `truck`) y `manual`, y opcionalmente `line` y `direction` en todas sus filas. Un clip de la partición de prueba de `data/splits.csv` no se puede comparar con anotaciones, porque elegir un modelo con él invalidaría esa evaluación. El resultado vale para ese video y con umbrales sin calibrar. Los archivos quedan en `outputs\dashboard\<video>\comparison\`, y las detecciones se guardan en caché, así que repetir una comparación es casi inmediato.
+
 ### Consola
 
 ```powershell
