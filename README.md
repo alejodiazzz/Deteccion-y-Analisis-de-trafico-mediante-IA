@@ -109,6 +109,20 @@ python -m vtia.cli evaluate-counting --csv data\manual_counts.csv --out outputs\
 - **Pre-anotación:** usa YOLO26x (fuera de la comparación, para no sesgar la referencia) y une jinete + vehículo en una sola caja, como pide la guía.
 - **Regla del jinete (E2):** `--riders 0.4` en `count`, `evaluate` y `calibrate`.
 
+### Reentrenar con MIO-TCD (Roboflow)
+
+[MIO-TCD](https://tcd.miovision.com/challenge/dataset.html) son imágenes de cámaras de tráfico fijas con cajas. Sirve para ajustar el detector; no tiene video ni IDs, así que no evalúa seguimiento ni conteo. Se usa la copia de [Roboflow Universe](https://universe.roboflow.com/thesis-ltv3y/mio_tcd-f3kk4): **Download Dataset → formato YOLO (v8 o posterior) → zip**, y se descomprime en `data\mio_tcd\` (queda `data.yaml`, `train\`, `valid\`, `test\`).
+
+```powershell
+python -m vtia.cli train --mio-tcd data\mio_tcd --name mio_tcd --epochs 50
+```
+
+**En Colab:** abrir [`notebooks/mio_tcd_colab.ipynb`](notebooks/mio_tcd_colab.ipynb) (en Colab: Archivo → Abrir cuaderno → GitHub). Descarga el dataset con la API de Roboflow (secreto `ROBOFLOW_API_KEY`), entrena en la GPU guardando los pesos en Drive en cada época, permite reanudar si Colab se desconecta y, opcionalmente, evalúa en la prueba fija con material anonimizado de Drive.
+
+Las clases se traducen según la guía de anotación: pickup → `car`; camión articulado y de unidad simple → `truck`. *Work van*, *motorized vehicle* y *non-motorized vehicle* se pintan de gris como regiones ignoradas (cambiar en `vtia/adapters/mio_tcd.py`). La validación de Ultralytics usa `valid\` de MIO-TCD; el resultado que cuenta se mide después en la prueba fija propia (`evaluate --cvat ... --partition test --models outputs\train\mio_tcd\weights\best.pt yolo26n.pt`). Esos pesos también pueden ser el punto de partida del ajuste con datos propios (`train --cvat ... --weights outputs\train\mio_tcd\weights\best.pt`).
+
+> **Licencia:** CC BY-NC-SA 4.0 (la de Miovision rige aunque Roboflow muestre otra). Solo uso no comercial, hay que citar a Luo et al., *MIO-TCD: A new benchmark dataset for vehicle classification and localization*, IEEE TIP 2018, y los pesos entrenados con él heredan esas condiciones.
+
 ### Evaluar contra VisDrone2019-MOT (val)
 
 ```powershell

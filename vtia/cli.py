@@ -8,6 +8,7 @@
     python -m vtia.cli evaluate --cvat data/annotations --videos data/anon --splits data/splits.csv --partition test
     python -m vtia.cli calibrate --cvat data/annotations --videos data/anon --splits data/splits.csv --partition fold1 --model yolo26n.pt
     python -m vtia.cli train --visdrone data/visdrone/VisDrone2019-MOT-val --val <seq> <seq>
+    python -m vtia.cli train --mio-tcd data/mio_tcd --name mio_tcd
 """
 import argparse
 import csv
@@ -359,6 +360,23 @@ def train_cmd(args) -> None:
     args.command_name = "train"
     from vtia.adapters.yolo_training import export_dataset, train  # heavy imports only for this command
 
+    if args.mio_tcd:
+        if args.visdrone or args.cvat or args.val or args.splits:
+            raise SystemExit("--mio-tcd brings its own train/valid split; don't combine it with other sources")
+        from vtia.adapters.mio_tcd import convert_export
+        try:
+            data, counts = convert_export(args.mio_tcd, Path("outputs/train") / args.name / "dataset")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for split in ("train", "val", "test"):
+            row = {cls: n for (s, cls), n in sorted(counts.items()) if s == split}
+            if row:
+                print(f"{split}: {row}")
+        best = train(data, args.weights, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch, name=args.name)
+        print(f"best weights: {best}\nMIO-TCD is CC BY-NC-SA 4.0: non-commercial, and these weights inherit it.\n"
+              f"Measure them on your own clips: evaluate --cvat ... --partition test --models {best} yolo26n.pt")
+        return
+
     sequences = _sequences(args)
     if args.splits:
         if args.val:
@@ -495,6 +513,8 @@ def main(argv: list[str] | None = None) -> None:
 
     t = sub.add_parser("train", help="fine-tune a YOLO model (phase 4)")
     _source_options(t)
+    t.add_argument("--mio-tcd", type=Path, metavar="DIR",
+                   help="MIO-TCD exported from Roboflow in YOLO format (data.yaml, train/, valid/)")
     t.add_argument("--val", nargs="+", metavar="NAME", help="validation sequences (the rest train)")
     t.add_argument("--splits", type=Path, help="CSV from `split`: trains on the folds except --fold, never on test")
     t.add_argument("--fold", type=int, default=1, help="validation fold when using --splits (default: %(default)s)")
