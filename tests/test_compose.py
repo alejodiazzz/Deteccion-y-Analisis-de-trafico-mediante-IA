@@ -7,8 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from vtia.application.compare_models import Comparison
 from vtia.application.process_video import VideoAnalysis
-from vtia.compose import analyze_file, prelabel_file
+from vtia.compose import analyze_file, compare_file, prelabel_file
+from vtia.domain.model_selection import Disagreement, Verdict
 
 POINT = Path(__file__).resolve().parents[1] / "configs" / "points" / "sample_vehicles.yaml"
 
@@ -42,6 +44,40 @@ class PrelabelFileTest(unittest.TestCase):
                 patch("vtia.adapters.cvat_mot.write_preannotations", return_value=0):
             prelabel_file(Path("clip.mp4"), Path(tmp))
         self.assertEqual(spy.frame_rate, 15.0)
+
+
+class CompareFileTest(unittest.TestCase):
+    def manifest(self, root, split):
+        path = root / "splits.csv"
+        path.write_text(f"clip,split\nclip,{split}\n", encoding="utf-8")
+        return path
+
+    def test_annotations_of_a_test_partition_clip_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp, patch("vtia.compose.compare_models") as compare:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "partición de prueba"):
+                compare_file(Path("clip.mp4"), POINT, annotations=root / "a.zip", out=root,
+                             splits=self.manifest(root, "test"))
+            compare.assert_not_called()
+
+    def test_test_partition_clip_can_be_compared_without_annotations(self):
+        comparison = Comparison([], Verdict((), (), None), Disagreement({}, None))
+        with tempfile.TemporaryDirectory() as tmp, patch("vtia.compose.compare_models", return_value=comparison):
+            root = Path(tmp)
+            run = compare_file(Path("clip.mp4"), POINT, out=root, splits=self.manifest(root, "test"))
+            self.assertEqual(run.out, root / "clip" / "comparison")
+            self.assertTrue((run.out / "summary.csv").is_file())
+
+    def test_earlier_results_are_removed_but_the_cache_stays(self):
+        comparison = Comparison([], Verdict((), (), None), Disagreement({}, None))
+        with tempfile.TemporaryDirectory() as tmp, patch("vtia.compose.compare_models", return_value=comparison):
+            root = Path(tmp)
+            target = root / "clip" / "comparison"
+            (target / "detections").mkdir(parents=True)
+            (target / "old_model").mkdir()
+            compare_file(Path("clip.mp4"), POINT, out=root, splits=root / "none.csv")
+            self.assertFalse((target / "old_model").exists())
+            self.assertTrue((target / "detections").exists())
 
 
 if __name__ == "__main__":

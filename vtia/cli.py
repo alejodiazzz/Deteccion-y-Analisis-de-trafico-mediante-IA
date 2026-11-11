@@ -18,15 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vtia.adapters.cached_detector import CachedDetector
+from vtia.adapters.comparison_files import write_model_tables
 from vtia.adapters.table_files import markdown_table, write_csv
 from vtia.adapters.video_io import VIDEO_SUFFIXES
 from vtia.adapters.visdrone import load_visdrone
-from vtia.application.evaluate import EvalResult, evaluate
+from vtia.application.evaluate import evaluate
 MODELS = ["yolo26n.pt", "yolo26s.pt", "rtdetr-l.pt", "faster_rcnn"]
 PRELABEL_MODEL = "yolo26x.pt"
 ALGORITHMS = ("bytetrack", "botsort")
-from vtia.domain.classes import RoadClass
-from vtia.domain.evaluation import BACKGROUND, MISSED
 from vtia.domain.splits import split, validate_split_assignment
 from vtia.domain.dataset_validation import read_split_manifest, select_training_sequences
 from vtia.domain.counting_evaluation import evaluate_count_rows
@@ -210,7 +209,7 @@ def evaluate_cmd(args) -> None:
                         parameters if parameters is not None else "N/D", model_size_mb if model_size_mb is not None else "N/D",
                         fps_inference if fps_inference is not None else "N/D",
                         fps_processing if fps_processing is not None else "N/D", cached.seconds, processing_seconds])
-        sections.append(_write_model_tables(out / detector.name, detector.name, r))
+        sections.append(write_model_tables(out / detector.name, detector.name, r))
         per_model_sequences[detector.name] = r.per_sequence
         model_results[detector.name] = r
         seq_header = ["sequence", "frames", "ground_truth_instances", "mAP50", "mAP50_95", "macro_F1", "HOTA", "MOTA", "IDF1"]
@@ -275,21 +274,6 @@ def evaluate_cmd(args) -> None:
                           "Conclusión: este informe presenta métricas observadas; no declara un ganador universal ni sustituye el análisis de contexto."],
                          extra_tables=class_tables)
     print(report)
-
-
-def _write_model_tables(out: Path, name: str, r: EvalResult) -> str:
-    out.mkdir(parents=True, exist_ok=True)
-    classes = list(RoadClass)
-    per_class_header = ["class", "precision", "recall", "f1", "support", "AP50", "AP50_95"]
-    per_class = [[c, m["precision"], m["recall"], m["f1"], m["support"],
-                  r.detection["per_class"][c]["AP50"], r.detection["per_class"][c]["AP50_95"]]
-                 for c, m in r.classes["per_class"].items()]
-    confusion_header = ["true \\ predicted", *classes, MISSED]
-    confusion = [[row, *(r.confusion[(row, col)] for col in [*classes, MISSED])] for row in [*classes, BACKGROUND]]
-    write_csv(out / "per_class.csv", per_class_header, per_class)
-    write_csv(out / "confusion.csv", confusion_header, confusion)
-    return (f"## {name}\n\n" + markdown_table(per_class_header, per_class) + "\n"
-            + markdown_table(confusion_header, confusion))
 
 
 def calibrate(args) -> None:

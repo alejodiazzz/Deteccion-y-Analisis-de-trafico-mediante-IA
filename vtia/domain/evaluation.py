@@ -1,6 +1,7 @@
 """Evaluation rules: box overlap, ignore regions, matching and the confusion matrix."""
 from collections import Counter
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from statistics import mean
 from typing import TypeVar
 
@@ -73,6 +74,25 @@ def confusion(truths: Sequence[GroundTruth], detections: Sequence[Detection], mi
     counts.update((t.road_class, MISSED) for t in missed)
     counts.update((BACKGROUND, d.road_class) for d in extra)
     return counts
+
+
+@dataclass(frozen=True)
+class ConfusionCell:
+    true: RoadClass | str        # a class or BACKGROUND
+    predicted: RoadClass | str   # a class or MISSED
+    count: int
+    share: float | None          # of the true row; None when the row is empty
+
+
+def confusion_cells(counts: Counter, classes: Sequence[RoadClass] = tuple(RoadClass)) -> list[ConfusionCell]:
+    """Every cell of the matrix, with its share of the true row. BACKGROUND x MISSED does not exist."""
+    cells = []
+    for true in (*classes, BACKGROUND):
+        columns = [*classes] if true == BACKGROUND else [*classes, MISSED]
+        total = sum(counts[(true, p)] for p in columns)
+        cells += [ConfusionCell(true, p, counts[(true, p)], counts[(true, p)] / total if total else None)
+                  for p in columns]
+    return cells
 
 
 def class_report(counts: Counter, classes: Sequence[RoadClass] = tuple(RoadClass)) -> dict:

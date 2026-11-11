@@ -10,6 +10,9 @@ CLASS = {
     RoadClass.TRUCK: "Camión",
 }
 
+BACKGROUND_LABEL = "Falso positivo"  # confusion matrix: a detection that matches no object
+MISSED_LABEL = "No detectado"        # confusion matrix: an object no detection matched
+
 ALERT = {
     "wrong_way": "Contraflujo",
     "restricted_hours": "Horario restringido",
