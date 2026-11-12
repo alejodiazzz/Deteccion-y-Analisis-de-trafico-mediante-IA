@@ -39,6 +39,16 @@ Plan de referencia: [`Plan_de_Accion_VideoTracking.md`](Plan_de_Accion_VideoTrac
 
 ## Registro
 
+### 2026-11-11 — Ajuste fino de YOLO26n con MIO-TCD (Colab)
+
+Informe completo: [`Experimento_MIO_TCD.md`](Experimento_MIO_TCD.md).
+
+- Conversor de MIO-TCD (oficial y exportación de Roboflow), `train --mio-tcd`, cuaderno `notebooks/mio_tcd_colab.ipynb`.
+- La copia de Roboflow `thesis-ltv3y/mio_tcd-f3kk4` se descartó: una sola caja por imagen (mAP50 0,410).
+- MIO-TCD oficial, 20.000 imágenes, 30 épocas en T4: mAP50 0,866 y mAP50-95 0,632 en su validación. Vehículos con mAP50 de 0,91 a 0,97; peatones 0,526 (recall 0,45).
+- El modelo ajustado ahora usa los nombres de COCO (`person`), así que las 6 clases parten de los pesos preentrenados. No mejoró a los peatones.
+- Pendiente: comparar `best.pt` con `yolo26n.pt` en la prueba fija propia.
+
 ### 2026-10-07 (noche) — Herramientas de F2 a F4 y fondo del tablero
 
 Explicación completa: [`Explicacion_Fase2_Fase4_Herramientas.md`](Explicacion_Fase2_Fase4_Herramientas.md). **Sin commits**, a pedido.
