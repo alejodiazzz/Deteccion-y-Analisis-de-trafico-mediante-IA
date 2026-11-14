@@ -126,7 +126,12 @@ def _sequences(args):
         missing = set(args.sequences) - {s.name for s in sequences}
         if missing:
             raise SystemExit(f"unknown sequences: {sorted(missing)}")
-    if args.cvat and getattr(args, "command_name", "") != "train":
+    if getattr(args, "pilot", False):
+        if not args.cvat:
+            raise SystemExit("--pilot only applies to CVAT annotations (--cvat + --videos)")
+        if getattr(args, "splits", None) or getattr(args, "partition", None):
+            raise SystemExit("--pilot evaluates external clips outside the split protocol; drop --splits/--partition")
+    elif args.cvat and getattr(args, "command_name", "") != "train":
         if not getattr(args, "splits", None) or not getattr(args, "partition", None):
             raise SystemExit("evaluating own CVAT data requires --splits MANIFEST.csv and --partition test (calibration must use a fold)")
         assignment = read_split_manifest(args.splits)
@@ -186,7 +191,11 @@ def evaluate_cmd(args) -> None:
     from vtia.adapters.trackeval_metrics import mot_metrics
     from vtia.compose import device_name, make_detector, make_tracker, with_postprocess
     sequences = _sequences(args)
-    out = args.out or Path("outputs/eval") / _source_name(args)
+    pilot = getattr(args, "pilot", False)
+    out = args.out or Path("outputs/eval") / (("pilot_" if pilot else "") + _source_name(args))
+    if pilot:
+        print("PILOT: external clips outside the capture protocol and the split manifest. "
+              "Results are indicative only; they are not the fixed test.")
     print(f"{len(sequences)} sequences, {sum(len(s.truths) for s in sequences)} frames | device: {device_name()}")
     summary, sections = [], []
     per_model_sequences = {}
@@ -226,7 +235,10 @@ def evaluate_cmd(args) -> None:
               + (f"_tt{args.track_thresh}" if args.track_thresh is not None else "")
               + (f"_{'-'.join(args.sequences)}" if args.sequences else ""))
     write_csv(out / f"summary{suffix}.csv", SUMMARY_HEADER, summary)
-    report = (f"# Evaluation on {_source_name(args)}\n\nDevice: {device_name()} | confusion threshold: "
+    report = (f"# Evaluation on {_source_name(args)}\n\n"
+              + ("**PILOT**: external clips outside the capture protocol and the split manifest; "
+                 "indicative only, not the fixed test.\n\n" if pilot else "")
+              + f"Device: {device_name()} | confusion threshold: "
               f"conf >= {args.conf}, IoU >= 0.5 | dedup: {args.dedup or 'off'} | riders: {args.riders or 'off'}"
               + (f" | sequences: {', '.join(args.sequences)}" if args.sequences else "") + "\n\n"
               + markdown_table(SUMMARY_HEADER, summary) + "\n" + "\n".join(sections))
@@ -238,7 +250,7 @@ def evaluate_cmd(args) -> None:
             condition_rows = list(csv.DictReader(f))
         robustness = {model: summarize_robustness(per_seq, condition_rows) for model, per_seq in per_model_sequences.items()}
         (out / f"robustness{suffix}.json").write_text(json.dumps(robustness, indent=2, ensure_ascii=False), encoding="utf-8")
-    payload = {"dataset": _source_name(args), "dataset_type": "VisDrone2019-MOT" if args.visdrone else "own_cvat_mot",
+    payload = {"dataset": _source_name(args), "dataset_type": "VisDrone2019-MOT" if args.visdrone else ("external_pilot_cvat_mot" if pilot else "own_cvat_mot"),
                "partition": getattr(args, "partition", None), "sequences": [s.name for s in sequences],
                "per_sequence": per_model_sequences, "robustness": robustness,
                "device": device_name(), "confusion_threshold": args.conf, "tracker": args.tracker,
@@ -256,7 +268,9 @@ def evaluate_cmd(args) -> None:
                       for klass, metrics in result.classes["per_class"].items()]
         class_tables.append((f"Resultados por clase — {model_name}", class_headers, class_rows))
     write_scientific_pdf(out / f"summary{suffix}.pdf", "Informe de evaluación científica VTIA",
-                         {"Objetivo": "Evaluar detección y seguimiento contra anotaciones de referencia.",
+                         {"Objetivo": ("PRUEBA PILOTO con videos externos, fuera del protocolo de captura y de la "
+                                       "partición: resultados orientativos, no es la prueba fija. " if pilot else "")
+                                      + "Evaluar detección y seguimiento contra anotaciones de referencia.",
                           "Conjunto": payload["dataset"], "Tipo de datos": payload["dataset_type"],
                           "Partición": payload["partition"] or "No aplica", "Secuencias": len(sequences),
                           "Cuadros anotados": sum(len(s.truths) for s in sequences), "Dispositivo": device_name(),
@@ -491,6 +505,8 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--splits", type=Path, help="required for own CVAT data: split manifest from `split`")
     e.add_argument("--partition", choices=["test", "fold1", "fold2", "fold3", "fold4", "fold5"],
                    help="CVAT partition to evaluate; use test only for final evaluation")
+    e.add_argument("--pilot", action="store_true",
+                   help="external CVAT clips without a split manifest; outputs are marked as a pilot, not the fixed test")
     e.add_argument("--conditions", type=Path, help="CSV: sequence,lighting,occlusion,vehicle_density,pedestrian_density,object_size,distance")
     e.add_argument("--track-thresh", type=float, metavar="T", help="(default: 0.3 for yolo26n, else 0.6)")
     _tracker_options(e)

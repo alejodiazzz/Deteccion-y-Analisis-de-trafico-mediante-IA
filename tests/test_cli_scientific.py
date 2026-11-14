@@ -28,6 +28,26 @@ class ScientificCliTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "requires --splits"):
                 _sequences(args)
 
+    def test_pilot_evaluates_external_clips_without_a_manifest(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            seq = AnnotatedSequence("piloto_dia", root / "piloto_dia.mp4", [[]], [[]])
+            args = Namespace(visdrone=None, cvat=root, videos=root, sequences=None, splits=None,
+                             partition=None, pilot=True, command_name="evaluate")
+            with mock.patch("vtia.adapters.cvat_mot.load_cvat_dir", return_value=[seq]):
+                self.assertEqual([s.name for s in _sequences(args)], ["piloto_dia"])
+
+    def test_pilot_cannot_be_mixed_with_the_split_protocol(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest, names, parts = self._manifest(root)
+            seq = AnnotatedSequence(names[0], root / "v.mp4", [[]], [[]])
+            args = Namespace(visdrone=None, cvat=root, videos=root, sequences=None, splits=manifest,
+                             partition="test", pilot=True, command_name="evaluate")
+            with mock.patch("vtia.adapters.cvat_mot.load_cvat_dir", return_value=[seq]):
+                with self.assertRaisesRegex(SystemExit, "outside the split protocol"):
+                    _sequences(args)
+
     def test_calibration_rejects_fixed_test_partition(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

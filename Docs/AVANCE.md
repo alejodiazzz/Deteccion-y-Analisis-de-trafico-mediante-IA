@@ -39,6 +39,16 @@ Plan de referencia: [`Plan_de_Accion_VideoTracking.md`](Plan_de_Accion_VideoTrac
 
 ## Registro
 
+### 2026-11-11 — Ajuste fino de YOLO26n con MIO-TCD (Colab)
+
+Informe completo: [`Experimento_MIO_TCD.md`](Experimento_MIO_TCD.md).
+
+- Conversor de MIO-TCD (oficial y exportación de Roboflow), `train --mio-tcd`, cuaderno `notebooks/mio_tcd_colab.ipynb`.
+- La copia de Roboflow `thesis-ltv3y/mio_tcd-f3kk4` se descartó: una sola caja por imagen (mAP50 0,410).
+- MIO-TCD oficial, 20.000 imágenes, 30 épocas en T4: mAP50 0,866 y mAP50-95 0,632 en su validación. Vehículos con mAP50 de 0,91 a 0,97; peatones 0,526 (recall 0,45).
+- El modelo ajustado ahora usa los nombres de COCO (`person`), así que las 6 clases parten de los pesos preentrenados. No mejoró a los peatones.
+- Pendiente: comparar `best.pt` con `yolo26n.pt` en la prueba fija propia.
+
 ### 2026-10-07 (noche) — Herramientas de F2 a F4 y fondo del tablero
 
 Explicación completa: [`Explicacion_Fase2_Fase4_Herramientas.md`](Explicacion_Fase2_Fase4_Herramientas.md). **Sin commits**, a pedido.
@@ -58,6 +68,7 @@ Explicación completa: [`Explicacion_Fase2_Fase4_Herramientas.md`](Explicacion_F
 
 **Resultados**
 - Anonimización: la primera versión dejaba ver al conductor por el parabrisas; corregido con la franja de cabina para vehículos ≥ 250 px de alto.
+- Anonimización (2026-11-14): las franjas difuminaban casi todo el vehículo cercano (placa 40 % del alto × 80 % del ancho, parabrisas 8–55 %, margen 15 %), lo que sesgaba la evaluación sobre video anonimizado. Se estrecharon (placa de carro 22 % × 55 %, parabrisas 15–45 % con 15 % de recorte lateral, margen 8 %); una prueba exige que un vehículo cercano quede difuminado en menos del 50 %. Pendiente: revisar a ojo con clips reales que no se escapen placas ni conductores.
 - Calibración (VisDrone, mejor HOTA): YOLO26n 0,2–0,3; YOLO26s 0,3 (0,363 contra 0,307 con 0,6); RT-DETR-L 0,4 (0,381 contra 0,344); Faster R-CNN ≥ 0,7 (0,352). Cada modelo pide su propio umbral: YOLO bajo, Faster R-CNN alto.
 - Ensayo de ajuste fino (YOLO26n, 5 secuencias de entrenamiento, 2 no vistas, 12,5 min de GPU): mAP50 0,163 → 0,264, F1 macro 0,159 → 0,293, HOTA 0,306 → 0,401. **Bus y camión quedan en 0** porque no había ejemplos al entrenar: hay que asegurarlos en cada grupo de la partición.
 

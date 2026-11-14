@@ -32,6 +32,19 @@ class PrivacyTest(unittest.TestCase):
         self.assertEqual(len(private_regions([det(C.TRUCK, (0, 0, 300, 400))])), 2)  # plate + windshield
         self.assertEqual(len(private_regions([det(C.TRUCK, (0, 0, 60, 80))])), 1)    # far away: plate only
 
+    def test_near_vehicle_keeps_most_of_its_body_visible(self):
+        # Over-blurring hides the vehicle itself and biases any evaluation run on anonymized video.
+        for cls in (C.CAR, C.BUS, C.TRUCK, C.MOTORCYCLE):
+            box = (0, 0, 300, 400)
+            area = sum((min(r[2], 300) - max(r[0], 0)) * (min(r[3], 400) - max(r[1], 0))
+                       for r in private_regions([det(cls, box)]))
+            self.assertLess(area, 0.5 * 300 * 400, cls)
+
+    def test_plate_band_stays_in_the_bottom_of_the_vehicle(self):
+        (plate,) = private_regions([det(C.CAR, (0, 0, 200, 200))])
+        self.assertGreater(plate[1], 140)  # bottom ~quarter of the box only
+        self.assertTrue(plate[0] > 30 and plate[2] < 170)  # not the whole width
+
     def test_bicycles_have_nothing_to_blur(self):
         self.assertEqual(private_regions([det(C.BICYCLE, (0, 0, 50, 50))]), [])
 
