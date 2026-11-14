@@ -30,6 +30,17 @@ python -m streamlit run app\dashboard.py
 
 Se abre en el navegador (http://localhost:8501). Solo es accesible desde el propio PC (`.streamlit/config.toml`), porque los videos pueden tener datos personales. El fondo animado es [upstream-fx](https://github.com/AmunM9/upstream-fx) (MIT), incluido en `app/static/` para no depender de internet. Ahí se sube o elige un video, se elige el punto de cámara y el modelo, y se presiona **Analizar**. Muestra conteos, gráficas, el video anotado, zonas y alertas, y permite descargar todo (PDF y CSV). Los resultados quedan en `outputs\dashboard\<video>\`.
 
+**Todo video subido se anonimiza antes de analizarse.** El original solo existe en una carpeta temporal que se borra en cuanto está la copia difuminada (`data\uploads\<tamaño>\<video>.mp4`). El análisis, la comparación y las descargas usan solo esa copia, y en la barra lateral se pueden revisar cuadros de muestra. Los videos elegidos de `data\` no se tocan: se asume que ya pasaron por `anonymize`.
+
+### Publicar en Streamlit Community Cloud
+
+1. En [share.streamlit.io](https://share.streamlit.io), **Create app** → repositorio de GitHub, rama, archivo `app/dashboard.py`.
+2. En **Advanced settings**, Python **3.12**.
+3. Community Cloud instala `app/requirements.txt` (las mismas dependencias, con torch solo-CPU) y los paquetes del sistema de `packages.txt` (librerías que necesita OpenCV).
+4. Recomendado: en **Settings → Sharing**, dejar la app privada e invitar solo a los correos del equipo.
+
+Allá la máquina tiene solo CPU: anonimizar y analizar tarda bastante más que en un PC con GPU, así que conviene subir clips cortos. Los modelos YOLO se descargan solos la primera vez. `rtdetr-l` y `faster_rcnn` pueden quedarse sin memoria. Ojo: aunque se borre enseguida, el video original sí viaja a los servidores de Streamlit (fuera de Colombia) para anonimizarse allá. Si eso no es aceptable para un video, hay que anonimizarlo antes en el PC servidor con `python -m vtia.cli anonymize`.
+
 ### Comparar modelos
 
 En el tablero, la pestaña **Comparar modelos** ejecuta YOLO26n, YOLO26s, RT-DETR-L y Faster R-CNN sobre el video y el punto elegidos. Solo afirma lo que los datos permiten:

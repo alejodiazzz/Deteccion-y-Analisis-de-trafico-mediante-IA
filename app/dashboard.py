@@ -2,7 +2,9 @@
 
     python -m streamlit run app/dashboard.py
 """
+import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +20,7 @@ import comparison_view  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
 from vtia.adapters.video_io import video_info  # noqa: E402
-from vtia.compose import MODELS, analyze_file, default_track_thresh, device_name  # noqa: E402
+from vtia.compose import MODELS, analyze_file, anonymize_file, default_track_thresh, device_name  # noqa: E402
 from vtia.domain.timeline import video_start  # noqa: E402
 
 DATA, CONFIGS, OUT = ROOT / "data", ROOT / "configs" / "points", ROOT / "outputs" / "dashboard"
@@ -97,26 +99,44 @@ with st.sidebar:
                     disabled=not (uploaded or picked) or not point)
 
 
-def selected_video() -> Path:
-    """The chosen video. An uploaded one is saved first: the models read it from disk."""
+def selected_video() -> Path | None:
+    """The chosen video. An uploaded one is anonymized before anything else reads it (Ley 1581
+    de 2012): the original only lives in a temporary folder, deleted as soon as the blurred copy
+    exists, so analysis, comparison and downloads only ever see the anonymized video."""
     if not uploaded:
         return picked
-    target = DATA / "uploads" / uploaded.name
-    if not target.exists() or target.stat().st_size != uploaded.size:
+    stem = Path(uploaded.name).stem  # kept: the start time is read from P<punto>_<AAAAMMDD>_<HHMM>
+    target = DATA / "uploads" / str(uploaded.size) / f"{stem}.mp4"
+    if target.exists():
+        return target
+    bar = st.progress(0.0, text="Anonimizando el video (cabezas y placas) antes de analizarlo...")
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = Path(tmp) / uploaded.name
+        raw.write_bytes(uploaded.getbuffer())
+        anon, sheet = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
+            min(i / max(n, 1), 1.0), text=f"Anonimizando el video: cuadro {i} de {n}"))
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(uploaded.getbuffer())
+        shutil.move(sheet, target.with_name(f"{stem}_check.jpg"))
+        shutil.move(anon, target)  # last: an interrupted run never leaves a half-blurred "done" video
+    bar.empty()
     return target
 
+
+video = selected_video() if (uploaded or picked) else None
+if uploaded and video:
+    with st.sidebar.expander("Revisar la anonimización"):
+        st.image(str(video.with_name(f"{video.stem}_check.jpg")),
+                 caption="Cuadros del video ya difuminado. El original subido se borró.")
 
 analysis_tab, compare_tab = st.tabs(["Análisis", "Comparar modelos"])
 
 # First: the analysis below ends with st.stop() while there are no results.
 with compare_tab:
-    comparison_view.render(selected_video, name, point, video_info(selected_video())[1] if name else 0, ROOT)
+    comparison_view.render(lambda: video, name, point, video_info(video)[1] if video else 0, ROOT)
 
 with analysis_tab:
     if run:
-        target = selected_video()
+        target = video
         bar = st.progress(0.0, text="Cargando el modelo...")
         try:
             st.session_state.run = analyze_file(
