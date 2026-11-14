@@ -13,3 +13,5 @@ runs/
 
 # Model weights (downloaded automatically or kept in Drive)
 *.pt
+*.onnx
+*.part

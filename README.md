@@ -41,6 +41,10 @@ Se abre en el navegador (http://localhost:8501). Solo es accesible desde el prop
 
 Allá la máquina tiene solo CPU: anonimizar y analizar tarda bastante más que en un PC con GPU, así que conviene subir clips cortos. Los modelos YOLO se descargan solos la primera vez. `rtdetr-l` y `faster_rcnn` pueden quedarse sin memoria. Ojo: aunque se borre enseguida, el video original sí viaja a los servidores de Streamlit (fuera de Colombia) para anonimizarse allá. Si eso no es aceptable para un video, hay que anonimizarlo antes en el PC servidor con `python -m vtia.cli anonymize`.
 
+### Probarlo en Colab
+
+[`notebooks/dashboard_colab.ipynb`](notebooks/dashboard_colab.ipynb) (en Colab: Archivo → Abrir cuaderno → GitHub) instala el proyecto en una GPU T4, prueba el conteo con un video de ejemplo y abre el tablero con un enlace temporal de [bore](https://github.com/ekzhang/bore). El enlace es público mientras el tablero esté encendido: no lo compartas y apágalo con la última celda.
+
 ### Comparar modelos
 
 En el tablero, la pestaña **Comparar modelos** ejecuta YOLO26n, YOLO26s, RT-DETR-L y Faster R-CNN sobre el video y el punto elegidos. Solo afirma lo que los datos permiten:
@@ -116,7 +120,7 @@ python -m vtia.cli evaluate-counting --csv data\manual_counts.csv --out outputs\
 ```
 
 - La guía completa de validación de datos, particiones, evaluación y error de conteo está en [`Docs/Guia_Evaluacion_Cientifica.md`](Docs/Guia_Evaluacion_Cientifica.md).
-- **Anonimización:** difumina la cabeza de cada persona, la franja de la placa de cada vehículo y el parabrisas de los vehículos grandes (≥ 250 px de alto), usando el mismo detector (YOLO26s, confianza 0,15). No guarda el audio. Los parámetros están en `vtia/domain/privacy.py`.
+- **Anonimización:** difumina la cabeza de cada persona, la placa de cada vehículo y el parabrisas de los vehículos grandes (≥ 250 px de alto), usando el mismo detector (YOLO26s, confianza 0,15). No guarda el audio. En los vehículos cercanos, un modelo de placas ([YOLOv11n de morsetechlab](https://huggingface.co/morsetechlab/yolov11-license-plate-detection), AGPL-3.0) y uno de caras ([YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), MIT) buscan la placa y el conductor reales cada 4 cuadros, y solo eso se difumina. Lo que no encuentran se cubre con franjas fijas. Se descargan solos a `models/`. Con `--no-refine` se usan solo las franjas (más rápido, difumina más del vehículo). Los parámetros están en `vtia/domain/privacy.py`.
 - **Pre-anotación:** usa YOLO26x (fuera de la comparación, para no sesgar la referencia) y une jinete + vehículo en una sola caja, como pide la guía.
 - **Regla del jinete (E2):** `--riders 0.4` en `count`, `evaluate` y `calibrate`.
 

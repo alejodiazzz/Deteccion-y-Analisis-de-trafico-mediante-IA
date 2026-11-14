@@ -11,13 +11,14 @@ from pathlib import Path
 import torch
 
 from vtia.adapters.annotated_video import AnnotatedVideo
-from vtia.adapters.anonymized_video import blur_video, contact_sheet
+from vtia.adapters.anonymized_video import FrameAt, blur_video, contact_sheet
 from vtia.adapters.cached_detector import CachedDetector
 from vtia.adapters.comparison_files import CACHE_DIR, clear_results, write_comparison
 from vtia.adapters.faster_rcnn_detector import FasterRCNNDetector
 from vtia.adapters.labels_es import duration
 from vtia.adapters.manual_counts import parse_manual_counts
 from vtia.adapters.mot_tracker import MotTracker
+from vtia.adapters.plate_face_finder import PlateFaceFinder
 from vtia.adapters.pdf_report import write_pdf
 from vtia.adapters.report_files import write_summary_tables, write_tables
 from vtia.adapters.ultralytics_detector import UltralyticsDetector
@@ -124,16 +125,26 @@ ANONYMIZE_CONF = 0.15           # low on purpose: blurring a false positive cost
 
 
 def anonymize_file(video: Path, out_dir: Path, *, model: str = ANONYMIZE_MODEL, conf: float = ANONYMIZE_CONF,
-                   hold_frames: int = 3, progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path]:
-    """Blurs heads and plates; writes <out_dir>/<name>.mp4 and <name>_check.jpg (frames to review by eye)."""
+                   hold_frames: int = 3, refine: bool = True, refresh_every: int = 4,
+                   progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path]:
+    """Blurs heads, plates and drivers; writes <out_dir>/<name>.mp4 and <name>_check.jpg (frames to
+    review by eye). `refine`: plate/face models narrow the blur on near vehicles, searching every
+    `refresh_every` frames; without them (or where they find nothing) the fixed bands are used."""
     video, out_dir = Path(video), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out, sheet = out_dir / f"{video.stem}.mp4", out_dir / f"{video.stem}_check.jpg"
     if out.resolve() == video.resolve():
         raise ValueError("the anonymised copy would overwrite the original: choose another output folder")
     _, total = video_info(video)
-    regions = regions_per_frame(video, make_detector(model, conf), hold_frames)
-    blur_video(video, out, regions, (lambda i: progress(i, total)) if progress else None)
+    frame_at = FrameAt(video) if refine else None
+    try:
+        regions = regions_per_frame(video, make_detector(model, conf), hold_frames,
+                                    finder=PlateFaceFinder() if refine else None, frame_at=frame_at,
+                                    refresh_every=refresh_every)
+        blur_video(video, out, regions, (lambda i: progress(i, total)) if progress else None)
+    finally:
+        if frame_at:
+            frame_at.close()
     contact_sheet(out, sheet)
     return out, sheet
 

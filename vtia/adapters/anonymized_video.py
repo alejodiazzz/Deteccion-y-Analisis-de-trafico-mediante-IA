@@ -9,6 +9,23 @@ from vtia.adapters.video_io import open_writer
 from vtia.domain.models import Box
 
 
+class FrameAt:
+    """Pixels of frame i, read forward only: the anonymizer asks for increasing frame numbers."""
+
+    def __init__(self, source: Path):
+        self.cap, self.next = cv2.VideoCapture(str(source)), 0
+
+    def __call__(self, i: int) -> np.ndarray | None:
+        while self.next < i and self.cap.grab():  # grab skips decoding-to-BGR: cheap
+            self.next += 1
+        ok, img = self.cap.read()
+        self.next += 1
+        return img if ok else None
+
+    def close(self) -> None:
+        self.cap.release()
+
+
 def blur_video(source: Path, out: Path, regions: Iterable[list[Box]],
                progress: Callable[[int], None] | None = None) -> int:
     """Writes `out` at the source resolution with every region blurred. No audio (voices are personal data too).
