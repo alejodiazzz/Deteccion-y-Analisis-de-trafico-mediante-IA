@@ -8,20 +8,25 @@ from collections.abc import Iterable
 from vtia.domain.classes import RoadClass
 from vtia.domain.models import Box, Detection
 
-# ponytail: fixed proportions of each box, not a face/plate detector. Over-blurs a little
-# (bumpers, hair); add a dedicated plate model only if real clips show plates escaping.
+# ponytail: fixed proportions of each box, not a face/plate detector. Kept tight on purpose:
+# blurring most of a vehicle hides the object itself and biases evaluation on anonymized video
+# (tests cap a near vehicle at < 50 % blurred). Add a dedicated plate model only if real clips
+# show plates escaping.
 HEAD = 0.28              # top share of a person's box
 PLATE_BAND = {           # bottom share of a vehicle's box, and share of its width (centred)
-    RoadClass.CAR: (0.40, 0.80),
-    RoadClass.BUS: (0.30, 0.70),
-    RoadClass.TRUCK: (0.30, 0.70),
-    RoadClass.MOTORCYCLE: (0.45, 1.00),
+    RoadClass.CAR: (0.22, 0.55),
+    RoadClass.BUS: (0.18, 0.50),
+    RoadClass.TRUCK: (0.18, 0.50),
+    RoadClass.MOTORCYCLE: (0.30, 0.60),
 }
-# Windshield band of large cars/buses/trucks (top, bottom share of the box): drivers are not boxed
-# as persons. Below CABIN_MIN_PX of box height the faces inside are a few pixels wide: not blurred.
-CABIN = (0.08, 0.55)
+# Windshield band of large cars/buses/trucks (top, bottom share of the box; side inset share):
+# drivers are not boxed as persons. Below CABIN_MIN_PX of box height the faces inside are a few
+# pixels wide: not blurred.
+CABIN = (0.15, 0.45)
+CABIN_INSET = 0.15
 CABIN_MIN_PX = 250
-MARGIN = 0.15            # widen each region by this share of its size, to absorb box jitter
+MARGIN = 0.08            # widen each region by this share of its size; anonymize.py also merges
+                         # recent frames, which absorbs most box jitter
 
 
 def private_regions(detections: Iterable[Detection]) -> list[Box]:
@@ -37,7 +42,7 @@ def private_regions(detections: Iterable[Detection]) -> list[Box]:
             regions.append(_grow((cx - w * width / 2, y2 - h * depth, cx + w * width / 2, y2)))
             if d.road_class != RoadClass.MOTORCYCLE and h >= CABIN_MIN_PX:
                 top, bottom = CABIN
-                regions.append(_grow((x1 + w * 0.05, y1 + h * top, x2 - w * 0.05, y1 + h * bottom)))
+                regions.append(_grow((x1 + w * CABIN_INSET, y1 + h * top, x2 - w * CABIN_INSET, y1 + h * bottom)))
     return regions
 
 
