@@ -75,6 +75,7 @@ def anonymize(args) -> None:
     from vtia.compose import anonymize_file
     for video in _videos(args.inputs):
         out, sheet = anonymize_file(video, args.out, model=args.model, conf=args.conf, hold_frames=args.hold,
+                                    refine=not args.no_refine, refresh_every=args.refresh,
                                     progress=_progress(video.name))
         print(f"  -> {out}\n  check by eye: {sheet}")
     print("Review every *_check.jpg (and play the videos) before deleting the raw files: "
@@ -469,6 +470,10 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--model", default="yolo26s.pt", help="(default: %(default)s)")
     a.add_argument("--conf", type=float, default=0.15, help="low on purpose: blurring a false positive is free (default: %(default)s)")
     a.add_argument("--hold", type=int, default=3, help="keep regions blurred this many extra frames (default: %(default)s)")
+    a.add_argument("--no-refine", action="store_true",
+                   help="fixed bands only: skip the plate/face models (faster, blurs more of each vehicle)")
+    a.add_argument("--refresh", type=int, default=4,
+                   help="run the plate/face models every this many frames (default: %(default)s)")
     a.set_defaults(func=anonymize)
 
     pl = sub.add_parser("prelabel", help="CVAT pre-annotations (MOT 1.1 zip) so annotators only correct")

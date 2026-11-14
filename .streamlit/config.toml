@@ -1,4 +1,6 @@
-# Dashboard: local only. Videos may contain personal data (Ley 1581 de 2012); publishing is phase 8.
+# Run locally, the dashboard is reachable from this PC only: data/ may hold raw videos with personal
+# data (Ley 1581 de 2012). Uploads are anonymized before analysis (app/dashboard.py), which is what
+# makes the Streamlit Community Cloud deployment possible (README, "Publicar en Streamlit...").
 [server]
 address = "localhost"
 headless = true
