@@ -78,6 +78,8 @@ with st.sidebar:
 
     st.header("Modelo")
     model = st.selectbox("Detector", MODELS)
+    st.caption("Con un video subido, yolo26s.pt reutiliza las detecciones de la anonimización: "
+               "no vuelve a recorrer el video.")
     tracker = st.selectbox("Tracker", ALGORITHMS)
     thresh = st.slider("Umbral del tracker", 0.1, 0.9, default_track_thresh(model), 0.05, key=f"thresh-{model}",
                        help="Confianza para crear un track nuevo (+0.1). Más bajo: encuentra más objetos, con más falsos.")
@@ -113,10 +115,12 @@ def selected_video() -> Path | None:
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / uploaded.name
         raw.write_bytes(uploaded.getbuffer())
-        anon, sheet = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
+        anon, _ = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
             min(i / max(n, 1), 1.0), text=f"Anonimizando el video: cuadro {i} de {n}"))
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(sheet, target.with_name(f"{stem}_check.jpg"))
+        for f in anon.parent.iterdir():  # contact sheet + detections, which the analysis replays
+            if f != anon:
+                shutil.move(f, target.parent / f.name)
         shutil.move(anon, target)  # last: an interrupted run never leaves a half-blurred "done" video
     bar.empty()
     return target

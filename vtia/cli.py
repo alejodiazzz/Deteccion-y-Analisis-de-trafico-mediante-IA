@@ -468,7 +468,7 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("inputs", type=Path, nargs="+", help="videos or folders of videos")
     a.add_argument("--out", type=Path, required=True, help="folder for the anonymised copies")
     a.add_argument("--model", default="yolo26s.pt", help="(default: %(default)s)")
-    a.add_argument("--conf", type=float, default=0.15, help="low on purpose: blurring a false positive is free (default: %(default)s)")
+    a.add_argument("--conf", type=float, default=0.1, help="low on purpose: blurring a false positive is free (default: %(default)s)")
     a.add_argument("--hold", type=int, default=3, help="keep regions blurred this many extra frames (default: %(default)s)")
     a.add_argument("--no-refine", action="store_true",
                    help="fixed bands only: skip the plate/face models (faster, blurs more of each vehicle)")
