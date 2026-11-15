@@ -20,7 +20,7 @@ import comparison_view  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
 from vtia.adapters.video_io import video_info  # noqa: E402
-from vtia.compose import MODELS, analyze_file, anonymize_file, default_track_thresh, device_name  # noqa: E402
+from vtia.compose import MODELS, analyze_file, anonymize_file, suggest_point_file, default_track_thresh, device_name  # noqa: E402
 from vtia.domain.timeline import video_start  # noqa: E402
 
 DATA, CONFIGS, OUT = ROOT / "data", ROOT / "configs" / "points", ROOT / "outputs" / "dashboard"
@@ -131,6 +131,29 @@ if uploaded and video:
     with st.sidebar.expander("Revisar la anonimización"):
         st.image(str(video.with_name(f"{video.stem}_check.jpg")),
                  caption="Cuadros del video ya difuminado. El original subido se borró.")
+
+if video:
+    with st.sidebar.expander("Sugerir punto de cámara"):
+        st.caption("Propone líneas de conteo, calzadas y zonas peatonales a partir de las trayectorias "
+                   "de los primeros minutos. Solo sirve con cámara fija. Revisa la propuesta antes de usarla.")
+        secs = st.slider("Segundos a analizar", 30, 300, 120, 30)
+        if st.button("Sugerir a partir de este video", width="stretch"):
+            bar = st.progress(0.0, text="Siguiendo vehículos y personas...")
+            try:
+                found = suggest_point_file(video, CONFIGS / f"sugerido_{video.stem}.yaml", seconds=secs,
+                                           progress=lambda i, n: bar.progress(min(i / max(n, 1), 1.0),
+                                                                              text=f"Cuadro {i} de {n}"))
+                st.session_state.suggested = (str(found[0]), str(found[1]))
+                st.rerun()  # the new YAML shows up in «Punto de cámara»
+            except ValueError:
+                bar.empty()
+                st.error("No se encontraron flujos de vehículos. Prueba con más segundos o dibuja las líneas a mano.")
+        if st.session_state.get("suggested"):
+            yaml_file, preview = (Path(p) for p in st.session_state.suggested)
+            if yaml_file.exists():
+                st.image(str(preview), caption=f"Guardado como {yaml_file.name}: elígelo en «Punto de cámara».")
+                st.download_button("Descargar el YAML", yaml_file.read_text(encoding="utf-8"),
+                                   file_name=yaml_file.name, width="stretch")
 
 analysis_tab, compare_tab = st.tabs(["Análisis", "Comparar modelos"])
 

@@ -83,6 +83,8 @@ Opciones:
 
 **Punto de cámara:** cada punto necesita su YAML en `configs/points/` con líneas (y opcionalmente sentido permitido), zonas con sus reglas y restricciones horarias. Ver los dos ejemplos comentados: `sample_vehicles.yaml` y `sample_people.yaml` (para `data\samples\people-walking.mp4`).
 
+**Sugerir un punto automáticamente:** `python -m vtia.cli suggest-point VIDEO --out configs\points\<punto>.yaml` (o, en el tablero, «Sugerir punto de cámara»). Sigue los objetos durante los primeros 2 minutos (`--seconds`), agrupa los vehículos en flujos por dirección y calzada, y propone una línea de conteo por flujo, con su sentido permitido, una zona por calzada y zonas peatonales donde caminan varias personas. Deja junto al YAML una imagen `.png` con la propuesta sobre el video, para revisarla. Solo sirve con **cámara fija**: si la cámara se mueve, las trayectorias no corresponden a la vía. Es una propuesta: las zonas no traen reglas (`forbidden`, `max_dwell_s`, `max_occupancy`) y conviene ajustar las líneas a mano si hace falta. Con un video anonimizado en este proyecto reutiliza sus detecciones y tarda segundos.
+
 ### Preparar los datos propios (Fase 2)
 
 Flujo completo, de la grabación a la evaluación (los nombres siguen el protocolo: `P1_20261015_0705_s0312.mp4`):

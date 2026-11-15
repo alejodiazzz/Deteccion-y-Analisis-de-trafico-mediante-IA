@@ -62,6 +62,29 @@ def _restriction(item: dict) -> Restriction:
     return Restriction(RoadClass(item["class"]), tuple(windows))
 
 
+def dump_point(config: PointConfig, header: str = "") -> str:
+    """YAML text that load_point reads back into `config` (coordinates rounded to whole pixels)."""
+    xy = lambda p: [round(p[0]), round(p[1])]  # noqa: E731
+    lines = [{"name": ln.name, "start": xy(ln.start), "end": xy(ln.end), "to_right": ln.to_right,
+              "to_left": ln.to_left, **({"allowed": ln.allowed} if ln.allowed else {})} for ln in config.lines]
+    zones = []
+    for z in config.zones:
+        item = {"name": z.name, "polygon": [xy(p) for p in z.polygon]}
+        if z.forbidden:
+            item["forbidden"] = sorted(c.value for c in z.forbidden)
+        if z.max_dwell_s is not None:
+            item["max_dwell_s"] = z.max_dwell_s
+        if z.max_occupancy is not None:
+            item["max_occupancy"] = z.max_occupancy
+        zones.append(item)
+    restrictions = [{"class": r.road_class.value, "hours": [f"{a:%H:%M}-{b:%H:%M}" for a, b in r.windows]}
+                    for r in config.restrictions]
+    data = {"lines": lines, **({"zones": zones} if zones else {}),
+            **({"restrictions": restrictions} if restrictions else {})}
+    comment = "".join(f"# {row}\n" if row else "#\n" for row in header.splitlines())
+    return comment + yaml.safe_dump(data, sort_keys=False, default_flow_style=None, allow_unicode=True)
+
+
 def _point(value) -> tuple[float, float]:
     x, y = value
     return float(x), float(y)

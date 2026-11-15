@@ -82,6 +82,18 @@ def anonymize(args) -> None:
           "only anonymised copies may leave this PC (capture protocol §8).")
 
 
+def suggest_point_cmd(args) -> None:
+    from vtia.compose import suggest_point_file
+    try:
+        out, preview, point = suggest_point_file(args.video, args.out, model=args.model, seconds=args.seconds,
+                                                 progress=_progress(args.video.name))
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
+    walks = sum(z.name.startswith("peatonal") for z in point.zones)
+    print(f"  -> {out}: {len(point.lines)} lines, {len(point.zones) - walks} carriageway zones, {walks} pedestrian zones")
+    print(f"  review it over the video frame: {preview}")
+
+
 def prelabel(args) -> None:
     from vtia.compose import prelabel_file
     for video in _videos(args.inputs):
@@ -475,6 +487,13 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--refresh", type=int, default=4,
                    help="run the plate/face models every this many frames (default: %(default)s)")
     a.set_defaults(func=anonymize)
+
+    sp = sub.add_parser("suggest-point", help="propose counting lines and zones from the first minutes of a video")
+    sp.add_argument("video", type=Path)
+    sp.add_argument("--out", type=Path, required=True, help="camera-point YAML to write (a .png preview goes next to it)")
+    sp.add_argument("--seconds", type=float, default=120, help="video span to learn the flows from (default: %(default)s)")
+    sp.add_argument("--model", default="yolo26s.pt", help="(default: %(default)s; replays the detections of an anonymized video)")
+    sp.set_defaults(func=suggest_point_cmd)
 
     pl = sub.add_parser("prelabel", help="CVAT pre-annotations (MOT 1.1 zip) so annotators only correct")
     pl.add_argument("inputs", type=Path, nargs="+", help="anonymised videos or folders")
