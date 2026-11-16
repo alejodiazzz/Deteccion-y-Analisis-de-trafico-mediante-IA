@@ -248,5 +248,6 @@ with analysis_tab:
 
     with files_tab:
         st.write(f"Archivos en `{result.out.relative_to(ROOT)}`:")
-        for f in sorted(result.out.iterdir()):
+        # Files only: "Comparar modelos" writes a comparison/ folder here, with its own downloads there.
+        for f in sorted(p for p in result.out.iterdir() if p.is_file()):
             st.download_button(f.name, f.read_bytes(), file_name=f.name, key=f"dl-{f.name}")

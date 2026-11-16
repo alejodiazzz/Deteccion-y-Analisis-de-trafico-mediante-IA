@@ -127,8 +127,12 @@ def show(run) -> None:
                                   columns=["Clase", "Mínimo", "Máximo", "Diferencia"]), hide_index=True, width="stretch")
 
     evaluated = [m for m in valid if m.evaluation]
-    if evaluated:
-        st.subheader("Matrices de confusión")
+    st.subheader("Matrices de confusión")
+    if not evaluated:
+        st.info("Una matriz de confusión compara lo que predice cada modelo con lo que realmente hay en el video, "
+                "así que necesita la referencia humana: sube arriba las **anotaciones CVAT** de este mismo video "
+                "(zip MOT 1.1) y vuelve a pulsar **Comparar**.")
+    else:
         st.caption("Color: porcentaje de cada clase real. Número: objetos. Confianza ≥ 0,25, IoU ≥ 0,5. s/d: sin datos.")
         columns = st.columns(2)
         for i, m in enumerate(evaluated):
