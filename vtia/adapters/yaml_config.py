@@ -17,7 +17,11 @@ from vtia.domain.models import Line, PointConfig, Restriction, Zone
 
 
 def load_point(path: Path) -> PointConfig:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return parse_point(yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}, path)
+
+
+def parse_point(data: dict, path: Path | str = "camera point") -> PointConfig:
+    """The same checks as load_point, on data already in memory (e.g. drawn in the dashboard)."""
     try:
         config = PointConfig(
             lines=tuple(_line(item) for item in data["lines"]),

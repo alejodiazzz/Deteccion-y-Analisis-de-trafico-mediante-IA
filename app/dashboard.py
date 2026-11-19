@@ -17,6 +17,7 @@ import streamlit as st  # noqa: E402
 import streamlit.components.v1 as components  # noqa: E402
 
 import comparison_view  # noqa: E402
+import point_editor  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
 from vtia.adapters.video_io import video_info  # noqa: E402
@@ -73,8 +74,10 @@ with st.sidebar:
     picked = st.selectbox("o elegir uno de data/", existing, format_func=lambda p: str(p.relative_to(DATA)),
                           disabled=uploaded is not None)
     points = sorted(CONFIGS.glob("*.yaml"))
-    point = st.selectbox("Punto de cámara", points, format_func=lambda p: p.name)
-    st.caption("Las líneas, zonas y reglas de cada punto se editan en configs/points/.")
+    if (pick := st.session_state.pop("pick_point", None)) and Path(pick) in points:
+        st.session_state.point = Path(pick)  # just suggested or drawn: select it
+    point = st.selectbox("Punto de cámara", points, format_func=lambda p: p.name, key="point")
+    st.caption("Las líneas y zonas se dibujan en la pestaña «Dibujar punto»; los archivos están en configs/points/.")
 
     st.header("Modelo")
     model = st.selectbox("Detector", MODELS)
@@ -144,22 +147,28 @@ if video:
                                            progress=lambda i, n: bar.progress(min(i / max(n, 1), 1.0),
                                                                               text=f"Cuadro {i} de {n}"))
                 st.session_state.suggested = (str(found[0]), str(found[1]))
+                st.session_state.pick_point = str(found[0])
+                st.session_state.pop("pe-base", None)  # «Dibujar punto» opens the new suggestion
                 st.rerun()  # the new YAML shows up in «Punto de cámara»
             except ValueError:
                 bar.empty()
-                st.error("No se encontraron flujos de vehículos. Prueba con más segundos o dibuja las líneas a mano.")
+                st.error("No se encontraron flujos de vehículos. Prueba con más segundos o dibuja las líneas "
+                         "a mano en la pestaña «Dibujar punto».")
         if st.session_state.get("suggested"):
             yaml_file, preview = (Path(p) for p in st.session_state.suggested)
             if yaml_file.exists():
-                st.image(str(preview), caption=f"Guardado como {yaml_file.name}: elígelo en «Punto de cámara».")
+                st.image(str(preview), caption=f"Guardado como {yaml_file.name} y elegido en «Punto de cámara». "
+                                               "Si alguna línea quedó mal, corrígela en la pestaña «Dibujar punto».")
                 st.download_button("Descargar el YAML", yaml_file.read_text(encoding="utf-8"),
                                    file_name=yaml_file.name, width="stretch")
 
-analysis_tab, compare_tab = st.tabs(["Análisis", "Comparar modelos"])
+analysis_tab, compare_tab, draw_tab = st.tabs(["Análisis", "Comparar modelos", "Dibujar punto"])
 
 # First: the analysis below ends with st.stop() while there are no results.
 with compare_tab:
     comparison_view.render(lambda: video, name, point, video_info(video)[1] if video else 0, ROOT)
+with draw_tab:
+    point_editor.render(video, CONFIGS)
 
 with analysis_tab:
     if run:

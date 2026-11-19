@@ -10,13 +10,19 @@ ROAD, WALK, LINE = (255, 160, 0), (0, 165, 255), (0, 255, 0)  # BGR: blue carria
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def draw_point(video: Path, point: PointConfig, out: Path, frame: int = 0) -> Path:
+def read_frame(video: Path, frame: int = 0) -> np.ndarray:
+    """One BGR frame of the video, at full resolution (the pixels the camera-point YAML uses)."""
     cap = cv2.VideoCapture(str(video))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
     ok, img = cap.read()
     cap.release()
     if not ok:
         raise ValueError(f"cannot read frame {frame} of {video}")
+    return img
+
+
+def draw_point(video: Path, point: PointConfig, out: Path, frame: int = 0) -> Path:
+    img = read_frame(video, frame)
     thick = max(2, img.shape[1] // 640)
     overlay = img.copy()
     for z in point.zones:
