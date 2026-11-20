@@ -13,6 +13,7 @@ import torch
 from vtia.adapters.annotated_video import AnnotatedVideo
 from vtia.adapters.anonymized_video import FrameAt, blur_video, contact_sheet
 from vtia.adapters.cached_detector import CachedDetector
+from vtia.adapters.detection_log import RecordingDetector, log_path, recorded_detections
 from vtia.adapters.comparison_files import CACHE_DIR, clear_results, write_comparison
 from vtia.adapters.faster_rcnn_detector import FasterRCNNDetector
 from vtia.adapters.labels_es import duration
@@ -23,13 +24,16 @@ from vtia.adapters.pdf_report import write_pdf
 from vtia.adapters.report_files import write_summary_tables, write_tables
 from vtia.adapters.ultralytics_detector import UltralyticsDetector
 from vtia.adapters.video_io import video_info
-from vtia.adapters.yaml_config import load_point
+from vtia.adapters.yaml_config import dump_point, load_point
+from vtia.adapters.scene_preview import draw_point
+from vtia.application.suggest_point import suggest_from_video
 from vtia.application.anonymize import regions_per_frame
 from vtia.application.compare_models import Comparison, compare_models
 from vtia.application.postprocessed import PostProcessed
 from vtia.application.process_video import VideoAnalysis, process_video
 from vtia.application.summary import Summary, summarize
 from vtia.domain.dataset_validation import read_split_manifest
+from vtia.domain.models import PointConfig
 from vtia.domain.postprocess import merge_riders, suppress_duplicates
 from vtia.domain.timeline import video_start
 
@@ -97,7 +101,9 @@ def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tr
     began = time.perf_counter()
     mot = make_tracker(tracker, model, track_thresh)
     try:
-        detector = with_postprocess(make_detector(model, conf), dedup, riders)
+        # Replays what anonymizing already detected on the original, when that equals running `model`.
+        replay = recorded_detections(video, model, conf, total_frames)
+        detector = with_postprocess(replay or make_detector(model, conf), dedup, riders)
         analysis = process_video(video, detector, mot, point, fps, start, on_frame)
     finally:
         if drawer:
@@ -113,7 +119,8 @@ def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tr
         "Inicio": f"{start:%Y-%m-%d %H:%M:%S}" if start else "desconocido",
         "Duración": duration(summary.duration_s),
         "Modelo": f"{Path(model).stem} (confianza mínima {conf})" + (f", dedup {dedup}" if dedup else "")
-                  + (f", jinetes unidos ({riders})" if riders else ""),
+                  + (f", jinetes unidos ({riders})" if riders else "")
+                  + (", detecciones del video original (reutilizadas de la anonimización)" if replay else ""),
         "Tracker": f"{tracker}, umbral {mot.track_thresh}",
         "Procesado en": f"{device_name()}, {analysis.frames / seconds:.1f} cuadros/s",
     })
@@ -121,7 +128,8 @@ def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tr
 
 
 ANONYMIZE_MODEL = "yolo26s.pt"  # recall matters more than speed here: a missed person keeps their face
-ANONYMIZE_CONF = 0.15           # low on purpose: blurring a false positive costs nothing
+ANONYMIZE_CONF = 0.1            # low on purpose: blurring a false positive costs nothing; equal to the
+                                # analysis default, so the analysis can replay these detections
 
 
 def anonymize_file(video: Path, out_dir: Path, *, model: str = ANONYMIZE_MODEL, conf: float = ANONYMIZE_CONF,
@@ -129,7 +137,8 @@ def anonymize_file(video: Path, out_dir: Path, *, model: str = ANONYMIZE_MODEL, 
                    progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path]:
     """Blurs heads, plates and drivers; writes <out_dir>/<name>.mp4 and <name>_check.jpg (frames to
     review by eye). `refine`: plate/face models narrow the blur on near vehicles, searching every
-    `refresh_every` frames; without them (or where they find nothing) the fixed bands are used."""
+    `refresh_every` frames; without them (or where they find nothing) the fixed bands are used.
+    Also writes <name>.detections.jsonl: analyze_file replays it instead of detecting again."""
     video, out_dir = Path(video), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out, sheet = out_dir / f"{video.stem}.mp4", out_dir / f"{video.stem}_check.jpg"
@@ -138,7 +147,8 @@ def anonymize_file(video: Path, out_dir: Path, *, model: str = ANONYMIZE_MODEL, 
     _, total = video_info(video)
     frame_at = FrameAt(video) if refine else None
     try:
-        regions = regions_per_frame(video, make_detector(model, conf), hold_frames,
+        detector = RecordingDetector(make_detector(model, conf), log_path(out))
+        regions = regions_per_frame(video, detector, hold_frames,
                                     finder=PlateFaceFinder() if refine else None, frame_at=frame_at,
                                     refresh_every=refresh_every)
         blur_video(video, out, regions, (lambda i: progress(i, total)) if progress else None)
@@ -206,3 +216,29 @@ def compare_file(video: Path, point_path: Path, *, annotations: Path | None = No
                                 map_metric=map_metric, mot_metric=mot_metric, on_model=on_model)
     write_comparison(target, comparison)
     return ComparisonRun(comparison, target)
+
+
+SUGGEST_MODEL = ANONYMIZE_MODEL  # the same model: a video anonymized here replays its detections
+
+
+def suggest_point_file(video: Path, out: Path, *, model: str = SUGGEST_MODEL, seconds: float = 120,
+                       conf: float = 0.1, progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path, PointConfig]:
+    """Proposes counting lines, carriageway and pedestrian zones from the first `seconds` of the
+    video; writes `out` (camera-point YAML) and `out`.png (the proposal over the first frame)."""
+    video, out = Path(video), Path(out)
+    fps, total = video_info(video)
+    limit = min(total, round(fps * seconds)) if total else round(fps * seconds)
+    detector = with_postprocess(recorded_detections(video, model, conf, total) or make_detector(model, conf),
+                                riders=0.4)  # riders folded into their vehicle: no "pedestrian zone" on the road
+    point = suggest_from_video(video, detector, make_tracker("bytetrack", model), fps, seconds,
+                               (lambda i: progress(i, limit)) if progress else None)
+    if not point.lines:
+        raise ValueError(f"no vehicle flow found in the first {seconds:.0f} s of {video.name}: "
+                         "try more seconds or draw the lines by hand")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(dump_point(point, (
+        f"Sugerido automáticamente a partir de los primeros {seconds:.0f} s de {video.name} ({Path(model).stem}).\n"
+        "Revisar sobre la imagen .png del mismo nombre antes de usarlo: es una propuesta, no una verdad.\n"
+        "Las zonas no traen reglas: agregar forbidden, max_dwell_s o max_occupancy donde hagan falta.")),
+        encoding="utf-8")
+    return out, draw_point(video, point, out.with_suffix(".png")), point

@@ -17,10 +17,11 @@ import streamlit as st  # noqa: E402
 import streamlit.components.v1 as components  # noqa: E402
 
 import comparison_view  # noqa: E402
+import point_editor  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
 from vtia.adapters.video_io import video_info  # noqa: E402
-from vtia.compose import MODELS, analyze_file, anonymize_file, default_track_thresh, device_name  # noqa: E402
+from vtia.compose import MODELS, analyze_file, anonymize_file, suggest_point_file, default_track_thresh, device_name  # noqa: E402
 from vtia.domain.timeline import video_start  # noqa: E402
 
 DATA, CONFIGS, OUT = ROOT / "data", ROOT / "configs" / "points", ROOT / "outputs" / "dashboard"
@@ -73,11 +74,15 @@ with st.sidebar:
     picked = st.selectbox("o elegir uno de data/", existing, format_func=lambda p: str(p.relative_to(DATA)),
                           disabled=uploaded is not None)
     points = sorted(CONFIGS.glob("*.yaml"))
-    point = st.selectbox("Punto de cámara", points, format_func=lambda p: p.name)
-    st.caption("Las líneas, zonas y reglas de cada punto se editan en configs/points/.")
+    if (pick := st.session_state.pop("pick_point", None)) and Path(pick) in points:
+        st.session_state.point = Path(pick)  # just suggested or drawn: select it
+    point = st.selectbox("Punto de cámara", points, format_func=lambda p: p.name, key="point")
+    st.caption("Las líneas y zonas se dibujan en la pestaña «Dibujar punto»; los archivos están en configs/points/.")
 
     st.header("Modelo")
     model = st.selectbox("Detector", MODELS)
+    st.caption("Con un video subido, yolo26s.pt reutiliza las detecciones de la anonimización: "
+               "no vuelve a recorrer el video.")
     tracker = st.selectbox("Tracker", ALGORITHMS)
     thresh = st.slider("Umbral del tracker", 0.1, 0.9, default_track_thresh(model), 0.05, key=f"thresh-{model}",
                        help="Confianza para crear un track nuevo (+0.1). Más bajo: encuentra más objetos, con más falsos.")
@@ -113,10 +118,12 @@ def selected_video() -> Path | None:
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / uploaded.name
         raw.write_bytes(uploaded.getbuffer())
-        anon, sheet = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
+        anon, _ = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
             min(i / max(n, 1), 1.0), text=f"Anonimizando el video: cuadro {i} de {n}"))
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(sheet, target.with_name(f"{stem}_check.jpg"))
+        for f in anon.parent.iterdir():  # contact sheet + detections, which the analysis replays
+            if f != anon:
+                shutil.move(f, target.parent / f.name)
         shutil.move(anon, target)  # last: an interrupted run never leaves a half-blurred "done" video
     bar.empty()
     return target
@@ -128,11 +135,40 @@ if uploaded and video:
         st.image(str(video.with_name(f"{video.stem}_check.jpg")),
                  caption="Cuadros del video ya difuminado. El original subido se borró.")
 
-analysis_tab, compare_tab = st.tabs(["Análisis", "Comparar modelos"])
+if video:
+    with st.sidebar.expander("Sugerir punto de cámara"):
+        st.caption("Propone líneas de conteo, calzadas y zonas peatonales a partir de las trayectorias "
+                   "de los primeros minutos. Solo sirve con cámara fija. Revisa la propuesta antes de usarla.")
+        secs = st.slider("Segundos a analizar", 30, 300, 120, 30)
+        if st.button("Sugerir a partir de este video", width="stretch"):
+            bar = st.progress(0.0, text="Siguiendo vehículos y personas...")
+            try:
+                found = suggest_point_file(video, CONFIGS / f"sugerido_{video.stem}.yaml", seconds=secs,
+                                           progress=lambda i, n: bar.progress(min(i / max(n, 1), 1.0),
+                                                                              text=f"Cuadro {i} de {n}"))
+                st.session_state.suggested = (str(found[0]), str(found[1]))
+                st.session_state.pick_point = str(found[0])
+                st.session_state.pop("pe-base", None)  # «Dibujar punto» opens the new suggestion
+                st.rerun()  # the new YAML shows up in «Punto de cámara»
+            except ValueError:
+                bar.empty()
+                st.error("No se encontraron flujos de vehículos. Prueba con más segundos o dibuja las líneas "
+                         "a mano en la pestaña «Dibujar punto».")
+        if st.session_state.get("suggested"):
+            yaml_file, preview = (Path(p) for p in st.session_state.suggested)
+            if yaml_file.exists():
+                st.image(str(preview), caption=f"Guardado como {yaml_file.name} y elegido en «Punto de cámara». "
+                                               "Si alguna línea quedó mal, corrígela en la pestaña «Dibujar punto».")
+                st.download_button("Descargar el YAML", yaml_file.read_text(encoding="utf-8"),
+                                   file_name=yaml_file.name, width="stretch")
+
+analysis_tab, compare_tab, draw_tab = st.tabs(["Análisis", "Comparar modelos", "Dibujar punto"])
 
 # First: the analysis below ends with st.stop() while there are no results.
 with compare_tab:
     comparison_view.render(lambda: video, name, point, video_info(video)[1] if video else 0, ROOT)
+with draw_tab:
+    point_editor.render(video, CONFIGS)
 
 with analysis_tab:
     if run:
@@ -221,5 +257,6 @@ with analysis_tab:
 
     with files_tab:
         st.write(f"Archivos en `{result.out.relative_to(ROOT)}`:")
-        for f in sorted(result.out.iterdir()):
+        # Files only: "Comparar modelos" writes a comparison/ folder here, with its own downloads there.
+        for f in sorted(p for p in result.out.iterdir() if p.is_file()):
             st.download_button(f.name, f.read_bytes(), file_name=f.name, key=f"dl-{f.name}")
