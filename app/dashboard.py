@@ -21,7 +21,7 @@ import point_editor  # noqa: E402
 from vtia.adapters import labels_es as es  # noqa: E402
 from vtia.adapters.mot_tracker import ALGORITHMS  # noqa: E402
 from vtia.adapters.video_io import video_info  # noqa: E402
-from vtia.compose import MODELS, analyze_file, anonymize_file, suggest_point_file, default_track_thresh, device_name  # noqa: E402
+from vtia.compose import MODELS, analyze_file, anonymize_run, suggest_point_file, default_track_thresh, device_name  # noqa: E402
 from vtia.domain.timeline import video_start  # noqa: E402
 
 DATA, CONFIGS, OUT = ROOT / "data", ROOT / "configs" / "points", ROOT / "outputs" / "dashboard"
@@ -81,7 +81,7 @@ with st.sidebar:
 
     st.header("Modelo")
     model = st.selectbox("Detector", MODELS)
-    st.caption("Con un video subido, yolo26s.pt reutiliza las detecciones de la anonimización: "
+    st.caption("Si el video ya se anonimizó en este proyecto, yolo26s.pt reutiliza esas detecciones: "
                "no vuelve a recorrer el video.")
     tracker = st.selectbox("Tracker", ALGORITHMS)
     thresh = st.slider("Umbral del tracker", 0.1, 0.9, default_track_thresh(model), 0.05, key=f"thresh-{model}",
@@ -105,35 +105,21 @@ with st.sidebar:
 
 
 def selected_video() -> Path | None:
-    """The chosen video. An uploaded one is anonymized before anything else reads it (Ley 1581
-    de 2012): the original only lives in a temporary folder, deleted as soon as the blurred copy
-    exists, so analysis, comparison and downloads only ever see the anonymized video."""
+    """The chosen video. An uploaded one is analysed as it came; anonymizing is optional, after the
+    analysis (button in «Análisis»), so detection and evaluation see the original pixels."""
     if not uploaded:
         return picked
-    stem = Path(uploaded.name).stem  # kept: the start time is read from P<punto>_<AAAAMMDD>_<HHMM>
-    target = DATA / "uploads" / str(uploaded.size) / f"{stem}.mp4"
-    if target.exists():
-        return target
-    bar = st.progress(0.0, text="Anonimizando el video (cabezas y placas) antes de analizarlo...")
-    with tempfile.TemporaryDirectory() as tmp:
-        raw = Path(tmp) / uploaded.name
-        raw.write_bytes(uploaded.getbuffer())
-        anon, _ = anonymize_file(raw, Path(tmp) / "anon", progress=lambda i, n: bar.progress(
-            min(i / max(n, 1), 1.0), text=f"Anonimizando el video: cuadro {i} de {n}"))
+    # The name is kept: the start time is read from P<punto>_<AAAAMMDD>_<HHMM>
+    target = DATA / "uploads" / str(uploaded.size) / uploaded.name
+    if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        for f in anon.parent.iterdir():  # contact sheet + detections, which the analysis replays
-            if f != anon:
-                shutil.move(f, target.parent / f.name)
-        shutil.move(anon, target)  # last: an interrupted run never leaves a half-blurred "done" video
-    bar.empty()
+        part = target.with_suffix(".part")
+        part.write_bytes(uploaded.getbuffer())
+        part.replace(target)  # an interrupted upload never leaves a truncated video
     return target
 
 
 video = selected_video() if (uploaded or picked) else None
-if uploaded and video:
-    with st.sidebar.expander("Revisar la anonimización"):
-        st.image(str(video.with_name(f"{video.stem}_check.jpg")),
-                 caption="Cuadros del video ya difuminado. El original subido se borró.")
 
 if video:
     with st.sidebar.expander("Sugerir punto de cámara"):
@@ -200,6 +186,27 @@ with analysis_tab:
     k3.metric("Alertas", len(a.alerts))
     k4.metric("Duración", es.duration(s.duration_s))
 
+    annotated = result.out / "annotated.mp4"
+    blurred = sorted(result.out.glob("*_anonimizado.mp4"))
+    with st.container(border=True):
+        target = "el video anotado" if annotated.exists() else "el video analizado"
+        if blurred:
+            st.markdown(f"**Anonimizado:** `{blurred[0].name}`. Está en «Video» y en «Descargas».")
+        else:
+            st.markdown(f"**Anonimizar** {target}: difumina cabezas, placas y conductores antes de compartirlo.")
+        if st.button("Anonimizar" if not blurred else "Volver a anonimizar", disabled=result.video is None):
+            bar = st.progress(0.0, text="Buscando personas y placas en el video original...")
+            try:
+                anonymize_run(result, progress=lambda i, n: bar.progress(
+                    min(i / max(n, 1), 1.0), text=f"Anonimizando: cuadro {i} de {n}"))
+            except Exception as e:
+                bar.empty()
+                st.error(f"No se pudo anonimizar: {e}")
+                st.stop()
+            st.rerun()
+        st.caption("Las personas y placas se buscan en el video original, no en el anotado: las cajas y "
+                   "etiquetas dibujadas las taparían. El original no se modifica.")
+
     summary_tab, video_tab, zones_tab, files_tab = st.tabs(["Resumen", "Video", "Zonas y alertas", "Descargas"])
 
     with summary_tab:
@@ -232,11 +239,18 @@ with analysis_tab:
                            + ("" if s.start else " Sin hora real: tiempo transcurrido desde el inicio."))
 
     with video_tab:
-        video = result.out / "annotated.mp4"
-        if video.exists():
-            st.video(str(video))
+        if blurred:
+            st.video(str(blurred[0]))
+            st.caption(f"{blurred[0].name}: con cabezas, placas y conductores difuminados.")
+            sheet = blurred[0].with_name(f"{blurred[0].stem}_check.jpg")
+            if sheet.exists():
+                with st.expander("Revisar la anonimización"):
+                    st.image(str(sheet), caption="Cuadros repartidos por el video: comprueba que no se escape "
+                                                 "ninguna cara ni placa antes de compartirlo.")
+        if annotated.exists():
+            st.video(str(annotated))
             st.caption("Cajas por clase con su ID; la línea se ilumina en cada cruce; en rojo, objetos con alerta.")
-        else:
+        elif not blurred:
             st.info("Este análisis se hizo sin video anotado.")
 
     with zones_tab:

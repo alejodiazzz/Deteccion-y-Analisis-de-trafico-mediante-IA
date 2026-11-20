@@ -30,7 +30,7 @@ python -m streamlit run app\dashboard.py
 
 Se abre en el navegador (http://localhost:8501). Solo es accesible desde el propio PC (`.streamlit/config.toml`), porque los videos pueden tener datos personales. El fondo animado es [upstream-fx](https://github.com/AmunM9/upstream-fx) (MIT), incluido en `app/static/` para no depender de internet. Ahí se sube o elige un video, se elige el punto de cámara y el modelo, y se presiona **Analizar**. Muestra conteos, gráficas, el video anotado, zonas y alertas, y permite descargar todo (PDF y CSV). Los resultados quedan en `outputs\dashboard\<video>\`.
 
-**Todo video subido se anonimiza antes de analizarse.** El original solo existe en una carpeta temporal que se borra en cuanto está la copia difuminada (`data\uploads\<tamaño>\<video>.mp4`). El análisis, la comparación y las descargas usan solo esa copia, y en la barra lateral se pueden revisar cuadros de muestra. Los videos elegidos de `data\` no se tocan: se asume que ya pasaron por `anonymize`.
+**La anonimización es opcional y va después del análisis.** El video subido se guarda tal como llega (`data\uploads\<tamaño>\<video>`) y se analiza sobre los píxeles originales, que es lo que pide la evaluación: sobre la copia difuminada el detector pierde muchos peatones y buses. Después de **Analizar** aparece el botón **Anonimizar**: difumina cabezas, placas y conductores del video anotado (o del analizado, si no se generó el anotado) y escribe `<video>_anonimizado.mp4` y su hoja de control `_check.jpg` en la carpeta de resultados, para verlos en «Video» y bajarlos en «Descargas». Las personas y placas se buscan en el video original, no en el anotado, porque las cajas y etiquetas dibujadas las taparían. **El original queda guardado en `data\uploads\`**: bórralo cuando ya no se necesite si tiene datos personales (Ley 1581 de 2012). Un análisis nuevo borra el anonimizado anterior, porque ya no le corresponde.
 
 ### Publicar en Streamlit Community Cloud
 
@@ -39,7 +39,7 @@ Se abre en el navegador (http://localhost:8501). Solo es accesible desde el prop
 3. Community Cloud instala `app/requirements.txt` (las mismas dependencias, con torch solo-CPU) y los paquetes del sistema de `packages.txt` (librerías que necesita OpenCV).
 4. Recomendado: en **Settings → Sharing**, dejar la app privada e invitar solo a los correos del equipo.
 
-Allá la máquina tiene solo CPU: anonimizar y analizar tarda bastante más que en un PC con GPU, así que conviene subir clips cortos. Los modelos YOLO se descargan solos la primera vez. `rtdetr-l` y `faster_rcnn` pueden quedarse sin memoria. Ojo: aunque se borre enseguida, el video original sí viaja a los servidores de Streamlit (fuera de Colombia) para anonimizarse allá. Si eso no es aceptable para un video, hay que anonimizarlo antes en el PC servidor con `python -m vtia.cli anonymize`.
+Allá la máquina tiene solo CPU: anonimizar y analizar tarda bastante más que en un PC con GPU, así que conviene subir clips cortos. Los modelos YOLO se descargan solos la primera vez. `rtdetr-l` y `faster_rcnn` pueden quedarse sin memoria. Ojo: el video original viaja a los servidores de Streamlit (fuera de Colombia) y queda allá hasta que la app se reinicie. Si eso no es aceptable para un video, hay que anonimizarlo antes en el PC servidor con `python -m vtia.cli anonymize`.
 
 ### Probarlo en Colab
 

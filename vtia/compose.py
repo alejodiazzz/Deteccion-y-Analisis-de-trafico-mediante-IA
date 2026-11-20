@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import cv2
 import torch
 
 from vtia.adapters.annotated_video import AnnotatedVideo
@@ -75,6 +76,7 @@ class Run:
     summary: Summary
     out: Path            # folder with every output file
     seconds: float       # processing time
+    video: Path | None = None  # the analysed video
 
 
 def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tracker: str = "bytetrack",
@@ -90,6 +92,8 @@ def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tr
     out.mkdir(parents=True, exist_ok=True)
     if not save_video:
         (out / "annotated.mp4").unlink(missing_ok=True)  # an earlier run's video doesn't match these results
+    for f in out.glob(f"*{ANONYMIZED}*"):  # blurred from an earlier run's video: no longer matches
+        f.unlink()
     drawer = AnnotatedVideo(video, out / "annotated.mp4", point) if save_video else None
 
     def on_frame(i, tracked, crossings, alerts):
@@ -124,7 +128,7 @@ def analyze_file(video: Path, point_path: Path, *, model: str = "yolo26n.pt", tr
         "Tracker": f"{tracker}, umbral {mot.track_thresh}",
         "Procesado en": f"{device_name()}, {analysis.frames / seconds:.1f} cuadros/s",
     })
-    return Run(analysis, summary, out, seconds)
+    return Run(analysis, summary, out, seconds, video)
 
 
 ANONYMIZE_MODEL = "yolo26s.pt"  # recall matters more than speed here: a missed person keeps their face
@@ -141,22 +145,62 @@ def anonymize_file(video: Path, out_dir: Path, *, model: str = ANONYMIZE_MODEL, 
     Also writes <name>.detections.jsonl: analyze_file replays it instead of detecting again."""
     video, out_dir = Path(video), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out, sheet = out_dir / f"{video.stem}.mp4", out_dir / f"{video.stem}_check.jpg"
+    out = out_dir / f"{video.stem}.mp4"
     if out.resolve() == video.resolve():
         raise ValueError("the anonymised copy would overwrite the original: choose another output folder")
-    _, total = video_info(video)
-    frame_at = FrameAt(video) if refine else None
+    return _anonymize(video, video, out, log_path(out), model=model, conf=conf, hold_frames=hold_frames,
+                      refine=refine, refresh_every=refresh_every, progress=progress)
+
+
+ANONYMIZED = "_anonimizado"
+
+
+def anonymize_run(run: Run, *, progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path]:
+    """Blurs the result of an analysis: annotated.mp4 if it was written, else the analysed video.
+    Detection runs on the analysed (original) video, never on the annotated one, whose drawn boxes
+    and labels would hide people and plates; the regions are scaled to the annotated size.
+    Writes <name>_anonimizado.mp4 and its _check.jpg in the run folder."""
+    if run.video is None:
+        raise ValueError("this run does not record which video was analysed")
+    annotated = run.out / "annotated.mp4"
+    onto = annotated if annotated.exists() else run.video
+    out = run.out / f"{onto.stem}{ANONYMIZED}.mp4"
+    # A later yolo26s analysis replays the log. An existing one is kept: it may hold the original's detections.
+    log = log_path(run.video)
+    return _anonymize(run.video, onto, out, None if log.exists() else log, progress=progress)
+
+
+def _anonymize(source: Path, onto: Path, out: Path, log: Path | None, *, model: str = ANONYMIZE_MODEL,
+               conf: float = ANONYMIZE_CONF, hold_frames: int = 3, refine: bool = True, refresh_every: int = 4,
+               progress: Callable[[int, int], None] | None = None) -> tuple[Path, Path]:
+    """Finds the private regions on `source` and blurs them on `onto` (same frames, maybe resized)."""
+    sheet = out.with_name(f"{out.stem}_check.jpg")
+    _, total = video_info(source)
+    frame_at = FrameAt(source) if refine else None
     try:
-        detector = RecordingDetector(make_detector(model, conf), log_path(out))
-        regions = regions_per_frame(video, detector, hold_frames,
+        detector = make_detector(model, conf)
+        if log is not None:
+            detector = RecordingDetector(detector, log)
+        regions = regions_per_frame(source, detector, hold_frames,
                                     finder=PlateFaceFinder() if refine else None, frame_at=frame_at,
                                     refresh_every=refresh_every)
-        blur_video(video, out, regions, (lambda i: progress(i, total)) if progress else None)
+        scale = _width(onto) / _width(source)
+        if abs(scale - 1) > 1e-6:
+            regions = ([tuple(c * scale for c in b) for b in boxes] for boxes in regions)
+        blur_video(onto, out, regions, (lambda i: progress(i, total)) if progress else None)
     finally:
         if frame_at:
             frame_at.close()
     contact_sheet(out, sheet)
     return out, sheet
+
+
+def _width(video: Path) -> int:
+    cap = cv2.VideoCapture(str(video))
+    try:
+        return int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1
+    finally:
+        cap.release()
 
 
 PRELABEL_MODEL = "yolo26x.pt"  # not one of the compared models: keeps the ground truth from leaning toward them
